@@ -3,3 +3,7 @@ pandas>=2.0.0
 numpy>=1.24.0
 pillow>=10.0.0
 plotly>=5.17.0
+reflex==0.5.4
+qrcode[pil]==7.4.2
+Pillow==10.4.0
+
