@@ -22,6 +22,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- SECRETS TELEGRAM ---
+try:
+    TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
+    TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+    TELEGRAM_CONFIGURED = True
+except (KeyError, FileNotFoundError):
+    TELEGRAM_TOKEN = None
+    TELEGRAM_CHAT_ID = None
+    TELEGRAM_CONFIGURED = False
+    st.sidebar.warning("⚠️ Configuration Telegram manquante dans les secrets")
+
 # --- CSS POUR THÈME MODERNE ---
 st.markdown("""
     <style>
@@ -99,6 +110,24 @@ st.markdown("""
         background: linear-gradient(180deg, #2c3e50 0%, #1a1a2e 100%);
         color: white;
     }
+    
+    .telegram-status {
+        padding: 0.5rem;
+        border-radius: 6px;
+        margin: 0.5rem 0;
+        text-align: center;
+        font-weight: 600;
+    }
+    
+    .telegram-success {
+        background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+        color: white;
+    }
+    
+    .telegram-warning {
+        background: linear-gradient(135deg, #FF9800 0%, #EF6C00 100%);
+        color: white;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,49 +138,45 @@ if 'detection_stats' not in st.session_state:
     st.session_state.detection_stats = Counter()
 if 'last_analysis_time' not in st.session_state:
     st.session_state.last_analysis_time = 0
-
-@st.cache_resource
-def load_models():
-    """Charge les modèles YOLO et DeepFace"""
-    yolo_model = YOLO("yolov8n.pt")
-    return yolo_model
-
-def analyze_demographics(image):
-    """Analyse le genre et l'âge d'un visage"""
-    try:
-        analysis = DeepFace.analyze(
-            img_path=image,
-            actions=['gender', 'age'],
-            enforce_detection=False,
-            detector_backend='opencv',
-            silent=True
-        )
-        if analysis and len(analysis) > 0:
-            gender = "Homme" if analysis[0]['gender']['Man'] > analysis[0]['gender']['Woman'] else "Femme"
-            age = int(analysis[0]['age'])
-            confidence = max(analysis[0]['gender']['Man'], analysis[0]['gender']['Woman'])
-            return gender, age, confidence
-    except:
-        pass
-    return None, None, None
+if 'is_running' not in st.session_state:
+    st.session_state.is_running = False
 
 @st.cache_resource
 def load_model():
+    """Charge le modèle YOLO"""
     return YOLO("yolov8n.pt")
 
 model = load_model()
 
-# --- FONCTION D'ENVOI ---
-def send_telegram(image_np, caption, token, chat_id):
+# --- FONCTION D'ENVOI TELEGRAM ---
+def send_telegram_alert(image_np, caption):
+    """Envoie une alerte Telegram"""
+    if not TELEGRAM_CONFIGURED:
+        return False
+    
     try:
-        temp_path = "last_alert.jpg"
+        # Sauvegarder temporairement l'image
+        temp_path = "temp_alert.jpg"
         cv2.imwrite(temp_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
-        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        
+        # Envoyer via l'API Telegram
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
         with open(temp_path, 'rb') as photo:
-            res = requests.post(url, data={'chat_id': chat_id, 'caption': caption}, 
-                              files={'photo': photo}, timeout=5)
-        return res.status_code == 200
-    except:
+            response = requests.post(
+                url, 
+                data={'chat_id': TELEGRAM_CHAT_ID, 'caption': caption, 'parse_mode': 'Markdown'},
+                files={'photo': photo},
+                timeout=10
+            )
+        
+        # Nettoyer le fichier temporaire
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+            
+        return response.status_code == 200
+        
+    except Exception as e:
+        st.sidebar.error(f"Erreur Telegram: {str(e)}")
         return False
 
 # --- UI : BARRE LATERALE ---
@@ -165,25 +190,39 @@ with st.sidebar:
     
     st.divider()
     
-    with st.expander("🔐 Configuration Telegram", expanded=True):
-        token = st.text_input("Bot Token", type="password", value="", placeholder="Entrez votre token Telegram")
-        chat_id = st.text_input("Chat ID", value="", placeholder="Entrez votre Chat ID")
+    # Statut Telegram
+    with st.expander("🔐 Statut Telegram", expanded=True):
+        if TELEGRAM_CONFIGURED:
+            st.markdown('<div class="telegram-status telegram-success">✅ Telegram configuré</div>', 
+                       unsafe_allow_html=True)
+            st.caption(f"Chat ID: {TELEGRAM_CHAT_ID[:4]}...{TELEGRAM_CHAT_ID[-4:]}")
+        else:
+            st.markdown('<div class="telegram-status telegram-warning">⚠️ Telegram non configuré</div>', 
+                       unsafe_allow_html=True)
+            st.caption("Ajoutez TELEGRAM_TOKEN et TELEGRAM_CHAT_ID dans les secrets Streamlit")
     
     st.divider()
     
     with st.expander("⚙️ Paramètres de détection", expanded=True):
-        conf_level = st.slider("Seuil de confiance", 0.1, 0.9, 0.6)
-        cooldown = st.slider("Délai entre alertes (s)", 5, 300, 30)
+        conf_level = st.slider("Seuil de confiance", 0.1, 0.9, 0.6, 0.05)
+        cooldown = st.slider("Délai entre alertes (s)", 5, 300, 30, 5)
         require_person = st.toggle("Alerte uniquement avec personne", value=True)
-        enable_demographics = st.toggle("Analyse démographique", value=True)
+        enable_demographics = st.toggle("Analyse démographique", value=False)
     
     st.divider()
     
+    # Contrôles
     col1, col2 = st.columns(2)
     with col1:
-        run_app = st.button("▶️ Démarrer", use_container_width=True, type="primary")
+        if st.button("▶️ Démarrer", use_container_width=True, type="primary", 
+                    disabled=not TELEGRAM_CONFIGURED):
+            st.session_state.is_running = True
+            st.rerun()
+    
     with col2:
-        stop_app = st.button("⏹️ Arrêter", use_container_width=True)
+        if st.button("⏹️ Arrêter", use_container_width=True):
+            st.session_state.is_running = False
+            st.rerun()
     
     st.divider()
     
@@ -191,7 +230,11 @@ with st.sidebar:
     if st.session_state.detection_stats:
         st.markdown("### 📊 Statistiques actuelles")
         for obj, count in st.session_state.detection_stats.most_common(5):
-            st.progress(min(count/10, 1.0), f"{obj}: {count}")
+            col_prog, col_text = st.columns([3, 1])
+            with col_prog:
+                st.progress(min(count/10, 1.0))
+            with col_text:
+                st.caption(f"{obj}: {count}")
 
 # --- UI : EN-TÊTE PRINCIPALE ---
 st.markdown("""
@@ -218,7 +261,8 @@ with col2:
 
 with col3:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("🎭 Analyse démographique", "Active", delta=None)
+    status = "✅ Active" if TELEGRAM_CONFIGURED else "❌ Inactive"
+    st.metric("📡 Notifications", status, delta=None)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col4:
@@ -234,28 +278,29 @@ with tab1:
     
     with col_video:
         st.markdown("### 🔴 Flux vidéo en direct")
-        video_feed = st.image([], use_column_width=True)
+        video_feed = st.image([], use_column_width=True, caption="Flux vidéo en attente...")
         
         # Contrôles vidéo
         col_controls = st.columns(3)
         with col_controls[0]:
             if st.button("📸 Capture", use_container_width=True):
                 st.session_state.last_capture = datetime.now()
+                st.toast("📸 Capture effectuée!", icon="✅")
         with col_controls[1]:
-            record = st.toggle("🎥 Enregistrer", value=False)
+            record = st.toggle("🎥 Enregistrer", value=False, disabled=True)
         with col_controls[2]:
             if st.button("🔄 Réinitialiser stats", use_container_width=True):
                 st.session_state.detection_stats = Counter()
+                st.rerun()
     
     with col_stats:
         st.markdown("### 📈 Détections en cours")
         stats_placeholder = st.empty()
-        
-        st.markdown("### 👤 Démographie")
-        demo_placeholder = st.empty()
+        stats_placeholder.info("En attente de détections...")
         
         st.markdown("### 🚨 Alertes récentes")
         alert_placeholder = st.empty()
+        alert_placeholder.info("Aucune alerte récente")
 
 with tab2:
     st.markdown("### 📊 Analytics approfondis")
@@ -269,27 +314,37 @@ with tab2:
         
         with col_chart1:
             fig1 = px.line(df_history, x='Heure', y='Personnes', 
-                          title="Évolution du nombre de personnes")
+                          title="Évolution du nombre de personnes",
+                          markers=True)
             st.plotly_chart(fig1, use_container_width=True)
         
         with col_chart2:
             if 'Démographie' in df_history.columns:
-                demo_data = df_history['Démographie'].explode().value_counts()
-                fig2 = px.pie(values=demo_data.values, names=demo_data.index,
-                             title="Répartition démographique")
-                st.plotly_chart(fig2, use_container_width=True)
+                try:
+                    demo_data = df_history['Démographie'].explode().value_counts()
+                    fig2 = px.pie(values=demo_data.values, names=demo_data.index,
+                                 title="Répartition démographique")
+                    st.plotly_chart(fig2, use_container_width=True)
+                except:
+                    st.info("Données démographiques indisponibles")
         
         # Heatmap des objets détectés
         if 'Objets' in df_history.columns:
-            st.markdown("### 🔥 Heatmap des objets détectés")
+            st.markdown("### 🔥 Fréquence des objets détectés")
             all_objects = []
             for obj_list in df_history['Objets']:
-                all_objects.extend(obj_list)
+                if isinstance(obj_list, dict):
+                    for obj, count in obj_list.items():
+                        all_objects.extend([obj] * count)
             
-            obj_counts = pd.Series(all_objects).value_counts()
-            fig3 = px.bar(x=obj_counts.index, y=obj_counts.values,
-                         title="Fréquence des objets détectés")
-            st.plotly_chart(fig3, use_container_width=True)
+            if all_objects:
+                obj_counts = pd.Series(all_objects).value_counts()
+                fig3 = px.bar(x=obj_counts.index, y=obj_counts.values,
+                             title="Fréquence des objets détectés",
+                             labels={'x': 'Objet', 'y': 'Nombre'})
+                st.plotly_chart(fig3, use_container_width=True)
+    else:
+        st.info("Aucune donnée analytique disponible. Lancez la surveillance pour commencer.")
 
 with tab3:
     st.markdown("### 📋 Historique complet")
@@ -305,166 +360,192 @@ with tab3:
         st.dataframe(df_display, use_container_width=True, height=400)
         
         # Boutons d'export
-        col_export = st.columns(3)
+        col_export = st.columns(2)
         with col_export[0]:
-            if st.button("📄 Exporter CSV"):
-                csv = df_display.to_csv(index=False)
-                st.download_button("Télécharger CSV", csv, "historique.csv")
+            if st.button("📄 Exporter CSV", use_container_width=True):
+                csv = df_display.to_csv(index=False, encoding='utf-8-sig')
+                st.download_button(
+                    label="Télécharger CSV",
+                    data=csv,
+                    file_name="visionguard_historique.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
         with col_export[1]:
-            if st.button("📊 Exporter Excel"):
-                excel_buffer = df_display.to_excel(index=False)
-                st.download_button("Télécharger Excel", excel_buffer, "historique.xlsx")
+            if st.button("🗑️ Effacer historique", use_container_width=True):
+                st.session_state.history = []
+                st.rerun()
     else:
         st.info("Aucun historique disponible")
 
-# --- BOUCLE PRINCIPALE ---
-if run_app and token and chat_id:
+# --- BOUCLE PRINCIPALE DE SURVEILLANCE ---
+if st.session_state.is_running and TELEGRAM_CONFIGURED:
+    # Initialiser la capture vidéo
     cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        st.error("❌ Impossible d'accéder à la caméra")
+        st.session_state.is_running = False
+        st.stop()
+    
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     
+    # Variables de suivi
     last_alert_time = 0
     fps_counter = 0
     fps_time = time.time()
+    alert_history = []
     
-    while cap.isOpened() and not stop_app:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Erreur de capture vidéo")
-            break
-        
-        # Calcul FPS
-        fps_counter += 1
-        if time.time() - fps_time >= 1:
-            fps = fps_counter
-            fps_counter = 0
-            fps_time = time.time()
-        
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = model(frame_rgb, conf=conf_level, verbose=False)
-        
-        # Analyse des objets
-        names = model.names
-        detected_objects = Counter([names[int(c)] for c in results[0].boxes.cls])
-        
-        # Mettre à jour les stats globales
-        for obj, count in detected_objects.items():
-            st.session_state.detection_stats[obj] += count
-        
-        person_count = detected_objects.get('person', 0)
-        phone_count = detected_objects.get('cell phone', 0)
-        
-        # Analyse démographique
-        demographics_info = []
-        if enable_demographics and person_count > 0:
-            current_time = time.time()
-            if current_time - st.session_state.last_analysis_time > 2:  # Toutes les 2 secondes
-                try:
-                    # Extraire les visages
-                    for i, box in enumerate(results[0].boxes):
-                        if names[int(box.cls)] == 'person':
-                            x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            face_region = frame_rgb[y1:y2, x1:x2]
-                            
-                            if face_region.size > 0:
-                                gender, age, conf = analyze_demographics(face_region)
-                                if gender and age:
-                                    demographics_info.append({
-                                        'gender': gender,
-                                        'age': age,
-                                        'confidence': conf
-                                    })
-                except:
-                    pass
-                st.session_state.last_analysis_time = current_time
-        
-        # Logique d'alerte
-        current_time = time.time()
-        should_alert = phone_count > 0
-        if require_person and person_count == 0:
-            should_alert = False
-        
-        if should_alert and (current_time - last_alert_time > cooldown):
-            annotated_img = results[0].plot()
-            timestamp = datetime.now().strftime("%H:%M:%S")
+    # Placeholder pour les contrôles
+    stop_button = st.empty()
+    
+    # Boucle principale
+    try:
+        while cap.isOpened() and st.session_state.is_running:
+            ret, frame = cap.read()
+            if not ret:
+                st.error("❌ Erreur de capture vidéo")
+                break
             
-            # Construire le message détaillé
-            alert_msg = f"""
-🚨 **ALERTE VISIONGUARD** 🚨
-⏰ Heure: {timestamp}
-📍 Détections:
+            # Calcul FPS
+            fps_counter += 1
+            if time.time() - fps_time >= 1:
+                current_fps = fps_counter
+                fps_counter = 0
+                fps_time = time.time()
+                
+                # Mettre à jour la métrique FPS
+                with col4:
+                    st.metric("⚡ FPS", current_fps)
+            
+            # Conversion couleur
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Détection YOLO
+            results = model(frame_rgb, conf=conf_level, verbose=False)
+            
+            # Analyse des objets détectés
+            names = model.names
+            detected_objects = Counter()
+            if results and len(results) > 0 and results[0].boxes is not None:
+                detected_objects = Counter([names[int(c)] for c in results[0].boxes.cls])
+            
+            # Mettre à jour les stats globales
+            for obj, count in detected_objects.items():
+                st.session_state.detection_stats[obj] += count
+            
+            # Compter personnes et téléphones
+            person_count = detected_objects.get('person', 0)
+            phone_count = detected_objects.get('cell phone', 0)
+            
+            # Mettre à jour les métriques
+            with col1:
+                st.metric("👥 Personnes détectées", person_count)
+            with col2:
+                st.metric("📱 Téléphones détectés", phone_count)
+            
+            # Logique d'alerte
+            current_time = time.time()
+            should_alert = phone_count > 0
+            
+            if require_person:
+                should_alert = should_alert and person_count > 0
+            
+            # Vérifier le délai entre alertes
+            if should_alert and (current_time - last_alert_time > cooldown):
+                # Annoter l'image
+                annotated_img = results[0].plot()
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Construire le message d'alerte
+                alert_msg = f"""🚨 **ALERTE VISIONGUARD** 🚨
+                
+⏰ **Heure:** {timestamp}
+📍 **Détections:**
 • 📱 Téléphones: {phone_count}
 • 👥 Personnes: {person_count}
 • 📦 Total objets: {sum(detected_objects.values())}
-            """
-            
-            if demographics_info:
-                avg_age = np.mean([d['age'] for d in demographics_info])
-                gender_dist = Counter([d['gender'] for d in demographics_info])
-                alert_msg += f"""
-📊 Démographie:
-• 🧑 Hommes: {gender_dist.get('Homme', 0)}
-• 👩 Femmes: {gender_dist.get('Femme', 0)}
-• 🎂 Âge moyen: {int(avg_age)} ans
-                """
-            
-            success = send_telegram(annotated_img, alert_msg, token, chat_id)
-            
-            if success:
-                # Sauvegarder dans l'historique
-                history_entry = {
-                    "Heure": timestamp,
-                    "Téléphones": phone_count,
-                    "Personnes": person_count,
-                    "Objets": dict(detected_objects),
-                    "Démographie": demographics_info if demographics_info else "Non analysé",
-                    "Statut": "Alerte envoyée"
-                }
-                st.session_state.history.insert(0, history_entry)
-                last_alert_time = current_time
+
+📊 **Statistiques:**
+{chr(10).join(f'• {obj}: {count}' for obj, count in detected_objects.most_common(5))}
+"""
                 
-                # Notification
-                st.toast(f"🚨 Alerte envoyée à {timestamp}", icon="📩")
-        
-        # Mise à jour UI - Flux vidéo
-        annotated_frame = results[0].plot()
-        
-        # Ajouter des infos sur le frame
-        cv2.putText(annotated_frame, f"FPS: {fps}", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(annotated_frame, f"Objets: {len(detected_objects)}", (10, 60),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        video_feed.image(annotated_frame, use_column_width=True)
-        
-        # Mise à jour UI - Statistiques
-        with col_stats:
-            stats_text = ""
-            for obj, count in detected_objects.most_common(10):
-                stats_text += f"**{obj}**: {count}\n"
-            stats_placeholder.markdown(stats_text)
+                # Envoyer l'alerte Telegram
+                success = send_telegram_alert(annotated_img, alert_msg)
+                
+                if success:
+                    # Sauvegarder dans l'historique
+                    history_entry = {
+                        "Heure": timestamp,
+                        "Téléphones": phone_count,
+                        "Personnes": person_count,
+                        "Objets": dict(detected_objects),
+                        "Statut": "✅ Alerte envoyée"
+                    }
+                    st.session_state.history.insert(0, history_entry)
+                    
+                    # Mettre à jour l'historique des alertes
+                    alert_history.insert(0, {
+                        "time": timestamp,
+                        "message": f"📱 {phone_count} téléphone(s) détecté(s)"
+                    })
+                    
+                    last_alert_time = current_time
+                    
+                    # Notification
+                    st.toast(f"🚨 Alerte envoyée à {timestamp}", icon="📩")
             
-            # Démographie
-            if demographics_info:
-                demo_text = ""
-                for demo in demographics_info:
-                    demo_text += f"• {demo['gender']}, ~{demo['age']} ans ({(demo['confidence']*100):.0f}%)\n"
-                demo_placeholder.markdown(demo_text)
-            else:
-                demo_placeholder.info("Analyse en attente...")
-        
-        # Mise à jour métriques
-        with col1:
-            st.metric("👥 Personnes détectées", person_count)
-        with col2:
-            st.metric("📱 Téléphones détectés", phone_count)
-        with col4:
-            st.metric("⚡ FPS", fps)
+            # Mise à jour de l'interface - Flux vidéo
+            if results and len(results) > 0:
+                annotated_frame = results[0].plot()
+                
+                # Ajouter des infos sur le frame
+                cv2.putText(annotated_frame, f"FPS: {current_fps if 'current_fps' in locals() else 'N/A'}", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.putText(annotated_frame, f"Objets: {len(detected_objects)}", 
+                           (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                
+                video_feed.image(annotated_frame, use_column_width=True, caption="Flux en direct")
+            
+            # Mise à jour de l'interface - Statistiques
+            with col_stats:
+                if detected_objects:
+                    stats_text = "### 📈 Détections actuelles\n\n"
+                    for obj, count in detected_objects.most_common(10):
+                        stats_text += f"**{obj.capitalize()}**: {count}\n"
+                    stats_placeholder.markdown(stats_text)
+                else:
+                    stats_placeholder.info("Aucune détection en cours...")
+            
+            # Mise à jour de l'interface - Alertes récentes
+            with col_stats:
+                if alert_history:
+                    alert_text = "### 🚨 Dernières alertes\n\n"
+                    for alert in alert_history[:3]:
+                        alert_text += f"• {alert['time'][11:]} - {alert['message']}\n"
+                    alert_placeholder.markdown(alert_text)
+            
+            # Bouton d'arrêt en bas du flux
+            if stop_button.button("⏹️ Arrêter la surveillance", use_container_width=True, type="secondary"):
+                st.session_state.is_running = False
+                st.rerun()
+            
+            # Petite pause pour réduire la charge CPU
+            time.sleep(0.01)
     
-    cap.release()
-    cv2.destroyAllWindows()
-elif run_app and (not token or not chat_id):
-    st.warning("Veuillez configurer les informations Telegram pour démarrer le système")
+    except Exception as e:
+        st.error(f"Erreur dans la boucle de surveillance: {str(e)}")
+    
+    finally:
+        # Nettoyage
+        cap.release()
+        cv2.destroyAllWindows()
+
+elif st.session_state.is_running and not TELEGRAM_CONFIGURED:
+    st.error("❌ Configuration Telegram requise pour démarrer la surveillance")
+    st.session_state.is_running = False
+    st.stop()
+
 else:
     # Écran d'accueil
     st.markdown("""
@@ -486,10 +567,10 @@ else:
     
     features = [
         ("🎯 Détection multi-objets", "Détecte et compte tous les objets visibles"),
-        ("👤 Analyse démographique", "Estime le genre et l'âge des personnes"),
+        ("📱 Détection téléphone", "Alarme spécifique pour téléphones détectés"),
         ("📊 Analytics temps réel", "Graphiques et statistiques en direct"),
-        ("🔔 Alertes intelligentes", "Notifications Telegram configurables"),
-        ("💾 Historique complet", "Export CSV/Excel des détections"),
+        ("🔔 Alertes Telegram", "Notifications instantanées avec photos"),
+        ("💾 Historique complet", "Export CSV des détections"),
         ("⚡ Performances optimisées", "Traitement en temps réel rapide")
     ]
     
@@ -506,6 +587,8 @@ else:
 st.markdown("""
     <div style="text-align: center; margin-top: 3rem; padding: 1.5rem; color: #666; font-size: 0.9rem; border-top: 1px solid #eee;">
         <p>🔍 <strong>VisionGuard AI Pro</strong> | Système de surveillance intelligent v2.0</p>
-        <p style="font-size: 0.8rem; opacity: 0.7;">Protégez votre espace avec l'intelligence artificielle</p>
+        <p style="font-size: 0.8rem; opacity: 0.7;">
+            Protection optimisée avec YOLOv8 | Notifications Telegram intégrées
+        </p>
     </div>
 """, unsafe_allow_html=True)
