@@ -3,17 +3,20 @@ import time
 from datetime import datetime
 import pandas as pd
 import numpy as np
-import threading
-import queue
+import av
+import cv2
+from ultralytics import YOLO
+import numpy as np
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 
 # Configuration de base
 st.set_page_config(
-    page_title="VisionGuard AI - Détection Intelligente",
+    page_title="VisionGuard AI - Détection Intelligente CLOUD",
     page_icon="🤖",
     layout="wide"
 )
 
-# CSS personnalisé (gardé identique)
+# CSS personnalisé
 st.markdown("""
 <style>
     .main-header {
@@ -32,24 +35,9 @@ st.markdown("""
         border-left: 4px solid #667eea;
         margin-bottom: 1rem;
     }
-    .video-container {
-        background: #1a1a1a;
-        border-radius: 10px;
-        padding: 20px;
-        text-align: center;
-    }
     .object-badge {
         display: inline-block;
         background: #007bff;
-        color: white;
-        padding: 8px 15px;
-        border-radius: 20px;
-        margin: 5px;
-        font-weight: bold;
-    }
-    .telegram-badge {
-        display: inline-block;
-        background: #28a745;
         color: white;
         padding: 8px 15px;
         border-radius: 20px;
@@ -62,121 +50,67 @@ st.markdown("""
 # En-tête principal
 st.markdown("""
 <div class="main-header">
-    <h1>🤖 VisionGuard AI Pro</h1>
-    <p>Système de surveillance intelligent avec détection automatique</p>
+    <h1>🤖 VisionGuard AI Pro - CLOUD READY</h1>
+    <p>✅ Détection YOLO temps réel sur Streamlit Cloud</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Vérifier les dépendances
-try:
-    import cv2
-    OPENCV_AVAILABLE = True
-except ImportError:
-    OPENCV_AVAILABLE = False
-    st.error("❌ OpenCV requis pour la caméra. Installez avec : `pip install opencv-python`")
-    st.stop()
+# Charger YOLO
+@st.cache_resource
+def load_yolo_model():
+    model = YOLO('yolov8n.pt')
+    return model
 
-try:
-    from ultralytics import YOLO
-    YOLO_AVAILABLE = True
-    model = YOLO('yolov8n.pt')  # Modèle YOLO pré-entraîné
-except ImportError:
-    YOLO_AVAILABLE = False
-    st.error("❌ YOLO requis. Installez avec : `pip install ultralytics`")
-    st.stop()
-
-# Vérifier Telegram
-try:
-    TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
-    TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
-    TELEGRAM_CONFIGURED = True
-except:
-    TELEGRAM_CONFIGURED = False
+model = load_yolo_model()
 
 # Initialisation session state
 if 'detections' not in st.session_state:
     st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'last_telegram_send' not in st.session_state:
-    st.session_state.last_telegram_send = 0
-if 'camera_active' not in st.session_state:
-    st.session_state.camera_active = False
-if 'frame_queue' not in st.session_state:
-    st.session_state.frame_queue = queue.Queue(maxsize=1)
-if 'detection_results' not in st.session_state:
-    st.session_state.detection_results = []
+if 'live_detections' not in st.session_state:
+    st.session_state.live_detections = []
+if 'frame_count' not in st.session_state:
+    st.session_state.frame_count = 0
 
-# Variables globales pour le thread caméra
-camera_thread = None
-stop_camera = threading.Event()
-
-def camera_thread_function():
-    """Thread pour capturer la vidéo de la caméra"""
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 30)
+# Fonction de détection
+def video_frame_callback(frame):
+    img = frame.to_ndarray(format="bgr24")
     
-    while not stop_camera.is_set():
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        # Redimensionner pour YOLO
-        frame_resized = cv2.resize(frame, (640, 640))
-        
-        # Détection YOLO
-        results = model(frame_resized, verbose=False)
-        
-        # Extraire les détections
-        detected_objects = []
-        for result in results:
-            boxes = result.boxes
-            if boxes is not None:
-                for box in boxes:
+    # Détection YOLO
+    results = model(img, verbose=False)
+    
+    # Compter les objets
+    detected_objects = []
+    for r in results:
+        boxes = r.boxes
+        if boxes is not None:
+            for box in boxes:
+                conf = float(box.conf[0])
+                if conf > 0.5:
                     cls_id = int(box.cls[0])
-                    conf = float(box.conf[0])
-                    if conf > 0.5:  # Seuil de confiance
-                        class_name = model.names[cls_id]
-                        detected_objects.append(class_name)
-        
-        # Mettre à jour les compteurs
-        for obj in detected_objects:
-            if obj in st.session_state.detections:
-                st.session_state.detections[obj] += 1
-            st.session_state.detections['total'] += 1
-        
-        # Stocker le frame annoté et les résultats
-        annotated_frame = results[0].plot()
-        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-        
-        try:
-            st.session_state.frame_queue.put_nowait((annotated_frame, detected_objects))
-        except queue.Full:
-            pass  # Ignore si queue pleine
-        
-        st.session_state.detection_results = detected_objects[-10:]  # Garde les 10 dernières
-        time.sleep(0.1)  # 10 FPS max
+                    class_name = model.names[cls_id]
+                    detected_objects.append(class_name)
     
-    cap.release()
+    # Mettre à jour compteurs
+    from collections import Counter
+    counts = Counter(detected_objects)
+    for obj, count in counts.items():
+        if obj in st.session_state.detections:
+            st.session_state.detections[obj] += count
+    st.session_state.detections['total'] += len(detected_objects)
+    
+    st.session_state.live_detections = detected_objects[-20:]  # 20 dernières détections
+    st.session_state.frame_count += 1
+    
+    # Frame annoté
+    annotated_frame = results[0].plot()
+    return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
 
-def send_to_telegram():
-    """Envoi simulé à Telegram (à implémenter avec requests)"""
-    current_time = time.time()
-    if current_time - st.session_state.last_telegram_send > 10:
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        message = f"🔍 VisionGuard AI\n🕐 {timestamp}\n👥 Personnes: {st.session_state.detections['person']}\n📱 Total: {st.session_state.detections['total']}"
-        
-        st.session_state.history.append({
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'message': f"📤 Alert envoyé - {st.session_state.detections['total']} objets"
-        })
-        st.session_state.last_telegram_send = current_time
-        st.rerun()
-    return False
+# RTC Configuration pour Streamlit Cloud
+RTC_CONFIGURATION = RTCConfiguration({
+    "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+})
 
-# Interface principale
+# Métriques
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -195,69 +129,82 @@ with col3:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col4:
-    status = "🟢 Active" if TELEGRAM_CONFIGURED else "🔴 Configurer"
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("📤 Telegram", status)
+    st.metric("📊 Frames", st.session_state.frame_count)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Contrôles caméra
-st.markdown("### 🎥 Caméra & Détection Live")
-col_btn1, col_btn2, col_btn3 = st.columns(3)
+# 🎥 WEBCAM STREAMLIT CLOUD ✅
+st.markdown("### 🎥 **Webcam Live Détection** (Fonctionne sur Cloud !)")
 
-if col_btn1.button("▶️ **DÉMARRER Caméra**", use_container_width=True, type="primary"):
-    if not st.session_state.camera_active:
-        st.session_state.camera_active = True
-        stop_camera.clear()
-        camera_thread = threading.Thread(target=camera_thread_function, daemon=True)
-        camera_thread.start()
-        st.rerun()
+# Alternative 1 : Webcam live avec streamlit-webrtc
+st.info("👆 **Cliquez START dans le lecteur vidéo** pour activer votre webcam")
 
-if col_btn2.button("⏹️ **ARRÊTER Caméra**", use_container_width=True):
-    st.session_state.camera_active = False
-    stop_camera.set()
-    st.rerun()
+webrtc_ctx = webrtc_streamer(
+    key="detection",
+    mode=WebRtcMode.SENDRECV,
+    rtc_configuration=RTC_CONFIGURATION,
+    video_frame_callback=video_frame_callback,
+    media_stream_constraints={
+        "video": {
+            "width": {"ideal": 640},
+            "height": {"ideal": 480}
+        }
+    }
+)
 
-if col_btn3.button("🔄 Réinitialiser", use_container_width=True):
-    st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
-    st.session_state.detection_results = []
-    st.rerun()
+# Alternative 2 : Upload image/vidéo
+st.markdown("### 📁 **OU Upload Image/Vidéo**")
+col_upload1, col_upload2 = st.columns([3,1])
 
-# Affichage vidéo
-video_container = st.empty()
-if st.session_state.camera_active:
-    try:
-        frame, detected_objects = st.session_state.frame_queue.get_nowait()
-        st.session_state.last_frame = frame
-        st.session_state.last_detected = detected_objects
-    except queue.Empty:
-        frame = getattr(st.session_state, 'last_frame', None)
-        detected_objects = getattr(st.session_state, 'last_detected', [])
-    
-    if frame is not None:
-        st.image(frame, channels="RGB", use_column_width=True)
+with col_upload1:
+    uploaded_file = st.file_uploader(
+        "Choisir image/vidéo", 
+        type=['png','jpg','jpeg','mp4','avi','mov'],
+        help="Upload pour analyse immédiate"
+    )
+
+with col_upload2:
+    if st.button("🔍 Analyser maintenant", type="primary"):
+        st.session_state.analyze_upload = True
+
+if uploaded_file and st.session_state.get('analyze_upload', False):
+    if uploaded_file.type.startswith('image/'):
+        image = np.frombuffer(uploaded_file.read(), np.uint8)
+        image = cv2.imdecode(image, cv2.IMREAD_COLOR)
         
-        if detected_objects:
-            badges_html = ""
+        results = model(image, verbose=False)
+        annotated_image = results[0].plot()
+        
+        st.image(annotated_image, caption="Détection terminée", use_column_width=True)
+        
+        # Compter objets
+        detected = []
+        for r in results:
+            boxes = r.boxes
+            if boxes is not None:
+                for box in boxes:
+                    if float(box.conf[0]) > 0.5:
+                        detected.append(model.names[int(box.cls[0])])
+        
+        st.success(f"🎯 **{len(detected)} objets détectés**")
+        if detected:
             from collections import Counter
-            counts = Counter(detected_objects)
-            for obj, count in counts.most_common(5):
-                badges_html += f'<span class="object-badge">{obj}: {count}</span>'
-            st.markdown(f"**🎯 {len(detected_objects)} objets détectés maintenant :**")
-            st.markdown(badges_html, unsafe_allow_html=True)
-    else:
-        st.warning("📹 Connexion caméra en cours...")
-else:
-    video_container.markdown("""
-    <div class="video-container">
-        <div style="font-size: 4rem; color: #666;">📹</div>
-        <div style="color: white; font-size: 1.2rem; margin-top: 10px;">
-            Cliquez sur "DÉMARRER Caméra" pour commencer
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+            counts = Counter(detected)
+            for obj, count in counts.items():
+                st.markdown(f'<span class="object-badge">{obj}: {count}</span>', unsafe_allow_html=True)
 
-# Statistiques
-st.markdown("### 📊 Statistiques Détections")
+# Objets détectés en live
+if st.session_state.live_detections:
+    st.markdown("### 🎯 **Détections Live**")
+    from collections import Counter
+    live_counts = Counter(st.session_state.live_detections)
+    badges_html = ""
+    for obj, count in live_counts.most_common(5):
+        badges_html += f'<span class="object-badge">{obj}: {count}</span>'
+    st.markdown(badges_html, unsafe_allow_html=True)
+
+# Graphique
+st.markdown("### 📈 **Statistiques**")
 chart_data = pd.DataFrame({
     'Objet': ['Personnes', 'Téléphones', 'Voitures', 'Chaises'],
     'Nombre': [
@@ -269,25 +216,33 @@ chart_data = pd.DataFrame({
 })
 st.bar_chart(chart_data.set_index('Objet'), use_container_width=True)
 
-# Historique
-if st.session_state.history:
-    st.markdown("### 📋 Dernières alertes")
-    for entry in st.session_state.history[-3:]:
-        st.info(f"🕐 {entry['timestamp']} - {entry['message']}")
+# Boutons contrôle
+col_btn1, col_btn2, col_btn3 = st.columns(3)
+if col_btn1.button("🔄 Réinitialiser", use_container_width=True):
+    st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
+    st.session_state.live_detections = []
+    st.session_state.frame_count = 0
+    st.rerun()
 
-# Info système
-with st.expander("ℹ️ Système & Installation"):
-    st.success("✅ **Dépendances OK** : OpenCV + YOLOv8")
+# Info déploiement
+with st.expander("🚀 **Déploiement Cloud - Installation**"):
+    st.success("✅ **Prêt pour Streamlit Cloud !**")
+    st.code("""
+pip install streamlit ultralytics av opencv-python streamlit-webrtc
+    """)
     st.info("""
-    **Installation requise :**
-    ```bash
-    pip install streamlit opencv-python ultralytics
-    ```
-    
-    **Caméra :** Webcam par défaut (index 0)
-    **Modèle :** YOLOv8n (nano) - 80 classes COCO
-    **FPS :** ~10 FPS optimisé
+**Fonctionnalités CLOUD :**
+✅ Webcam live (bouton START)
+✅ Upload image/vidéo  
+✅ YOLOv8 temps réel
+✅ Métriques live
+✅ HTTPS automatique
     """)
 
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666;'>🤖 VisionGuard AI Pro v2.2 | Détection temps réel</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div style='text-align: center; color: #666;'>"
+    "🤖 VisionGuard AI Pro v3.0 | Cloud Ready | YOLOv8 Live"
+    "</div>", 
+    unsafe_allow_html=True
+)
