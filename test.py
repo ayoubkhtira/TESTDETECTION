@@ -3,6 +3,8 @@ import time
 from datetime import datetime
 import pandas as pd
 import numpy as np
+import threading
+import queue
 
 # Configuration de base
 st.set_page_config(
@@ -11,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# CSS personnalisé
+# CSS personnalisé (gardé identique)
 st.markdown("""
 <style>
     .main-header {
@@ -65,21 +67,23 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Vérifier les dépendances OpenCV
+# Vérifier les dépendances
 try:
     import cv2
     OPENCV_AVAILABLE = True
 except ImportError:
     OPENCV_AVAILABLE = False
-    st.warning("⚠️ OpenCV n'est pas disponible. Mode simulation activé.")
+    st.error("❌ OpenCV requis pour la caméra. Installez avec : `pip install opencv-python`")
+    st.stop()
 
-# Vérifier YOLO
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
+    model = YOLO('yolov8n.pt')  # Modèle YOLO pré-entraîné
 except ImportError:
     YOLO_AVAILABLE = False
-    st.warning("⚠️ YOLO n'est pas disponible.")
+    st.error("❌ YOLO requis. Installez avec : `pip install ultralytics`")
+    st.stop()
 
 # Vérifier Telegram
 try:
@@ -88,300 +92,202 @@ try:
     TELEGRAM_CONFIGURED = True
 except:
     TELEGRAM_CONFIGURED = False
-    st.warning("⚠️ Telegram n'est pas configuré. Ajoutez les secrets dans Streamlit Cloud.")
 
-# Initialisation des données
+# Initialisation session state
 if 'detections' not in st.session_state:
-    st.session_state.detections = {
-        'person': 0,
-        'cell phone': 0,
-        'car': 0,
-        'chair': 0,
-        'total': 0
-    }
+    st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
 if 'history' not in st.session_state:
     st.session_state.history = []
 if 'last_telegram_send' not in st.session_state:
     st.session_state.last_telegram_send = 0
+if 'camera_active' not in st.session_state:
+    st.session_state.camera_active = False
+if 'frame_queue' not in st.session_state:
+    st.session_state.frame_queue = queue.Queue(maxsize=1)
+if 'detection_results' not in st.session_state:
+    st.session_state.detection_results = []
 
-# Fonction pour simuler la détection
-def simulate_detection():
-    """Simule la détection d'objets"""
-    import random
-    
-    objects_to_detect = [
-        ('person', 0.4),       # 40% de chance
-        ('cell phone', 0.3),   # 30% de chance
-        ('car', 0.15),         # 15% de chance
-        ('chair', 0.1),        # 10% de chance
-        ('book', 0.05)         # 5% de chance
-    ]
-    
-    detected = []
-    for obj, prob in objects_to_detect:
-        if random.random() < prob:
-            count = random.randint(1, 3)
-            detected.extend([obj] * count)
-            st.session_state.detections[obj] = st.session_state.detections.get(obj, 0) + count
-    
-    return detected
+# Variables globales pour le thread caméra
+camera_thread = None
+stop_camera = threading.Event()
 
-# Fonction pour envoyer à Telegram
-def send_to_telegram_simulated():
-    """Simule l'envoi à Telegram"""
+def camera_thread_function():
+    """Thread pour capturer la vidéo de la caméra"""
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    
+    while not stop_camera.is_set():
+        ret, frame = cap.read()
+        if not ret:
+            break
+            
+        # Redimensionner pour YOLO
+        frame_resized = cv2.resize(frame, (640, 640))
+        
+        # Détection YOLO
+        results = model(frame_resized, verbose=False)
+        
+        # Extraire les détections
+        detected_objects = []
+        for result in results:
+            boxes = result.boxes
+            if boxes is not None:
+                for box in boxes:
+                    cls_id = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    if conf > 0.5:  # Seuil de confiance
+                        class_name = model.names[cls_id]
+                        detected_objects.append(class_name)
+        
+        # Mettre à jour les compteurs
+        for obj in detected_objects:
+            if obj in st.session_state.detections:
+                st.session_state.detections[obj] += 1
+            st.session_state.detections['total'] += 1
+        
+        # Stocker le frame annoté et les résultats
+        annotated_frame = results[0].plot()
+        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+        
+        try:
+            st.session_state.frame_queue.put_nowait((annotated_frame, detected_objects))
+        except queue.Full:
+            pass  # Ignore si queue pleine
+        
+        st.session_state.detection_results = detected_objects[-10:]  # Garde les 10 dernières
+        time.sleep(0.1)  # 10 FPS max
+    
+    cap.release()
+
+def send_to_telegram():
+    """Envoi simulé à Telegram (à implémenter avec requests)"""
     current_time = time.time()
-    if current_time - st.session_state.last_telegram_send > 5:  # Toutes les 5 secondes
+    if current_time - st.session_state.last_telegram_send > 10:
         timestamp = datetime.now().strftime("%H:%M:%S")
+        message = f"🔍 VisionGuard AI\n🕐 {timestamp}\n👥 Personnes: {st.session_state.detections['person']}\n📱 Total: {st.session_state.detections['total']}"
         
-        # Créer le message
-        message = f"🔍 Détection VisionGuard AI\n"
-        message += f"🕐 {timestamp}\n"
-        message += f"👥 Personnes: {st.session_state.detections.get('person', 0)}\n"
-        message += f"📱 Téléphones: {st.session_state.detections.get('cell phone', 0)}\n"
-        message += f"📦 Total objets: {st.session_state.detections['total']}\n"
-        
-        # Ajouter à l'historique
         st.session_state.history.append({
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'message': f"Image envoyée à Telegram - {len(st.session_state.history) + 1} objets détectés"
+            'message': f"📤 Alert envoyé - {st.session_state.detections['total']} objets"
         })
-        
         st.session_state.last_telegram_send = current_time
-        
-        # Afficher une notification
-        with st.chat_message("assistant"):
-            st.write(f"📤 Envoyé à Telegram à {timestamp}")
-        
-        return True
+        st.rerun()
     return False
 
-# Affichage des métriques
+# Interface principale
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("👥 Personnes", st.session_state.detections.get('person', 0), "+2")
+    st.metric("👥 Personnes", st.session_state.detections['person'])
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("📱 Téléphones", st.session_state.detections.get('cell phone', 0), "+1")
+    st.metric("📱 Téléphones", st.session_state.detections['cell phone'])
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col3:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("🚨 Détections", st.session_state.detections['total'], "+5")
+    st.metric("🚨 Total", st.session_state.detections['total'])
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col4:
-    status = "🟢 Active" if TELEGRAM_CONFIGURED else "🔴 Inactive"
+    status = "🟢 Active" if TELEGRAM_CONFIGURED else "🔴 Configurer"
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
     st.metric("📤 Telegram", status)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Zone de détection principale
-st.markdown("### 🎥 Détection en Temps Réel")
-
-# Conteneur vidéo
-video_container = st.empty()
-
-# Simuler le flux vidéo
-video_container.markdown("""
-<div class="video-container">
-    <div style="color: white; font-size: 1.5rem; margin-bottom: 20px;">
-        🔍 Système de détection actif
-    </div>
-    <div style="background: #333; padding: 30px; border-radius: 10px; display: inline-block;">
-        <div style="font-size: 4rem; color: #4CAF50;">🤖</div>
-    </div>
-    <div style="color: #4CAF50; margin-top: 20px; font-size: 1.2rem;">
-        Détection YOLO en cours...
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# Boutons de contrôle
+# Contrôles caméra
+st.markdown("### 🎥 Caméra & Détection Live")
 col_btn1, col_btn2, col_btn3 = st.columns(3)
 
-with col_btn1:
-    if st.button("▶️ Démarrer la détection", use_container_width=True, type="primary"):
-        st.session_state.detection_active = True
+if col_btn1.button("▶️ **DÉMARRER Caméra**", use_container_width=True, type="primary"):
+    if not st.session_state.camera_active:
+        st.session_state.camera_active = True
+        stop_camera.clear()
+        camera_thread = threading.Thread(target=camera_thread_function, daemon=True)
+        camera_thread.start()
         st.rerun()
 
-with col_btn2:
-    if st.button("📸 Capturer l'image", use_container_width=True):
-        st.success(f"Image capturée à {datetime.now().strftime('%H:%M:%S')}")
+if col_btn2.button("⏹️ **ARRÊTER Caméra**", use_container_width=True):
+    st.session_state.camera_active = False
+    stop_camera.set()
+    st.rerun()
 
-with col_btn3:
-    if st.button("🔄 Réinitialiser", use_container_width=True):
-        st.session_state.detections = {
-            'person': 0,
-            'cell phone': 0,
-            'car': 0,
-            'chair': 0,
-            'total': 0
-        }
-        st.rerun()
+if col_btn3.button("🔄 Réinitialiser", use_container_width=True):
+    st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
+    st.session_state.detection_results = []
+    st.rerun()
 
-# Zone d'affichage des objets détectés
-st.markdown("### 📊 Objets Détectés")
-
-# Simuler la détection automatique
-if st.session_state.get('detection_active', False):
-    # Timer pour la détection automatique
-    if 'last_detection' not in st.session_state:
-        st.session_state.last_detection = time.time()
+# Affichage vidéo
+video_container = st.empty()
+if st.session_state.camera_active:
+    try:
+        frame, detected_objects = st.session_state.frame_queue.get_nowait()
+        st.session_state.last_frame = frame
+        st.session_state.last_detected = detected_objects
+    except queue.Empty:
+        frame = getattr(st.session_state, 'last_frame', None)
+        detected_objects = getattr(st.session_state, 'last_detected', [])
     
-    current_time = time.time()
-    if current_time - st.session_state.last_detection > 2:  # Toutes les 2 secondes
-        detected_objects = simulate_detection()
-        st.session_state.detections['total'] += len(detected_objects)
-        st.session_state.last_detection = current_time
+    if frame is not None:
+        st.image(frame, channels="RGB", use_column_width=True)
         
-        # Envoyer à Telegram toutes les 5 secondes
-        send_to_telegram_simulated()
-        
-        # Afficher les objets détectés
         if detected_objects:
-            from collections import Counter
-            object_counts = Counter(detected_objects)
-            
-            # Créer les badges
             badges_html = ""
-            for obj, count in object_counts.items():
+            from collections import Counter
+            counts = Counter(detected_objects)
+            for obj, count in counts.most_common(5):
                 badges_html += f'<span class="object-badge">{obj}: {count}</span>'
-            
+            st.markdown(f"**🎯 {len(detected_objects)} objets détectés maintenant :**")
             st.markdown(badges_html, unsafe_allow_html=True)
-            
-            # Mettre à jour l'affichage vidéo
-            video_container.markdown(f"""
-            <div class="video-container">
-                <div style="color: white; font-size: 1.5rem; margin-bottom: 20px;">
-                    🎯 {len(detected_objects)} objets détectés
-                </div>
-                <div style="background: #333; padding: 30px; border-radius: 10px; display: inline-block;">
-                    <div style="font-size: 4rem; color: #FF5722;">🎯</div>
-                </div>
-                <div style="color: #FF5722; margin-top: 20px; font-size: 1.2rem;">
-                    Détection en temps réel
-                </div>
-                <div style="margin-top: 20px;">
-                    {badges_html}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+    else:
+        st.warning("📹 Connexion caméra en cours...")
+else:
+    video_container.markdown("""
+    <div class="video-container">
+        <div style="font-size: 4rem; color: #666;">📹</div>
+        <div style="color: white; font-size: 1.2rem; margin-top: 10px;">
+            Cliquez sur "DÉMARRER Caméra" pour commencer
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Statistiques en temps réel
-st.markdown("### 📈 Statistiques Live")
-
-# Graphique simple
+# Statistiques
+st.markdown("### 📊 Statistiques Détections")
 chart_data = pd.DataFrame({
     'Objet': ['Personnes', 'Téléphones', 'Voitures', 'Chaises'],
     'Nombre': [
-        st.session_state.detections.get('person', 0),
-        st.session_state.detections.get('cell phone', 0),
-        st.session_state.detections.get('car', 0),
-        st.session_state.detections.get('chair', 0)
+        st.session_state.detections['person'],
+        st.session_state.detections['cell phone'],
+        st.session_state.detections['car'],
+        st.session_state.detections['chair']
     ]
 })
+st.bar_chart(chart_data.set_index('Objet'), use_container_width=True)
 
-st.bar_chart(chart_data.set_index('Objet'))
-
-# Historique Telegram
+# Historique
 if st.session_state.history:
-    st.markdown("### 📋 Historique Telegram")
-    
-    # Afficher les 5 derniers envois
-    for entry in st.session_state.history[-5:]:
+    st.markdown("### 📋 Dernières alertes")
+    for entry in st.session_state.history[-3:]:
         st.info(f"🕐 {entry['timestamp']} - {entry['message']}")
 
-# Panneau d'information
-with st.expander("ℹ️ Informations système"):
-    col_info1, col_info2 = st.columns(2)
+# Info système
+with st.expander("ℹ️ Système & Installation"):
+    st.success("✅ **Dépendances OK** : OpenCV + YOLOv8")
+    st.info("""
+    **Installation requise :**
+    ```bash
+    pip install streamlit opencv-python ultralytics
+    ```
     
-    with col_info1:
-        st.markdown("**État du système:**")
-        if OPENCV_AVAILABLE:
-            st.success("✅ OpenCV disponible")
-        else:
-            st.warning("⚠️ OpenCV en mode simulation")
-        
-        if YOLO_AVAILABLE:
-            st.success("✅ YOLO disponible")
-        else:
-            st.warning("⚠️ YOLO en mode simulation")
-        
-        if TELEGRAM_CONFIGURED:
-            st.success("✅ Telegram configuré")
-        else:
-            st.warning("⚠️ Telegram non configuré")
-    
-    with col_info2:
-        st.markdown("**Configuration requise:**")
-        st.code("""
-        # requirements.txt
-        streamlit==1.28.0
-        opencv-python-headless==4.8.1.78
-        ultralytics==8.0.0
-        """)
-        
-        st.markdown("**Prochain envoi Telegram:**")
-        next_send = max(0, 5 - (time.time() - st.session_state.last_telegram_send))
-        st.progress(next_send / 5, f"Dans {int(next_send)} secondes")
+    **Caméra :** Webcam par défaut (index 0)
+    **Modèle :** YOLOv8n (nano) - 80 classes COCO
+    **FPS :** ~10 FPS optimisé
+    """)
 
-# Instructions pour résoudre OpenCV
-if not OPENCV_AVAILABLE:
-    st.markdown("---")
-    st.markdown("### 🔧 Configuration requise pour OpenCV")
-    
-    with st.expander("Cliquez pour voir les instructions"):
-        st.markdown("""
-        #### Pour Streamlit Cloud, ajoutez ces fichiers :
-        
-        **1. `requirements.txt` :**
-        ```txt
-        streamlit==1.28.0
-        opencv-python-headless==4.8.1.78
-        ultralytics==8.0.0
-        numpy==1.24.0
-        pandas==2.1.0
-        Pillow==10.0.0
-        ```
-        
-        **2. `packages.txt` (CRITIQUE) :**
-        ```txt
-        libgl1-mesa-glx
-        libglib2.0-0
-        libsm6
-        libxext6
-        libxrender1
-        libgomp1
-        ```
-        
-        **3. `.streamlit/secrets.toml` :**
-        ```toml
-        TELEGRAM_TOKEN = "votre_token_ici"
-        TELEGRAM_CHAT_ID = "votre_chat_id_ici"
-        ```
-        
-        **4. Structure des fichiers :**
-        ```
-        votre-projet/
-        ├── app.py
-        ├── requirements.txt
-        ├── packages.txt
-        └── .streamlit/
-            └── secrets.toml
-        ```
-        
-        **5. Redéployez** sur Streamlit Cloud
-        """)
-
-# Pied de page
 st.markdown("---")
-st.markdown(
-    "<div style='text-align: center; color: #666; padding: 20px;'>"
-    "🤖 VisionGuard AI Pro v2.1 | Système de surveillance intelligent"
-    "</div>",
-    unsafe_allow_html=True
-)
+st.markdown("<div style='text-align: center; color: #666;'>🤖 VisionGuard AI Pro v2.2 | Détection temps réel</div>", unsafe_allow_html=True)
