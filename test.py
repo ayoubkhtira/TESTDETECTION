@@ -1,42 +1,47 @@
 import streamlit as st
-import time
 from datetime import datetime
 import pandas as pd
-import numpy as np
-import cv2
-from ultralytics import YOLO
 from collections import Counter
+from ultralytics import YOLO
+import numpy as np
+import io
+from PIL import Image
 
 # Configuration
-st.set_page_config(page_title="VisionGuard AI - CLOUD", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="VisionGuard AI - CLOUD OK", page_icon="🤖", layout="wide")
 
 # CSS
 st.markdown("""
 <style>
 .main-header {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 15px; color: white; margin-bottom: 2rem; text-align: center;}
-.metric-card {background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 4px solid #667eea; margin-bottom: 1rem;}
+.metric-card {background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 4px solid #667eea;}
 .object-badge {display: inline-block; background: #007bff; color: white; padding: 8px 15px; border-radius: 20px; margin: 5px; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header"><h1>🤖 VisionGuard AI Pro - CLOUD OK</h1><p>Upload image/vidéo + YOLO temps réel</p></div>', unsafe_allow_html=True)
+# Header
+st.markdown('<div class="main-header"><h1>🤖 VisionGuard AI Pro - 100% CLOUD</h1><p>Détection YOLO sans OpenCV</p></div>', unsafe_allow_html=True)
 
-# Charger YOLO
+# YOLO Model
 @st.cache_resource
-def load_yolo():
+def load_model():
     return YOLO('yolov8n.pt')
 
-model = load_yolo()
+model = load_model()
 
 # Session state
 if 'detections' not in st.session_state:
     st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
-if 'last_results' not in st.session_state:
-    st.session_state.last_results = []
+if 'results' not in st.session_state:
+    st.session_state.results = []
 
-# Fonction détection
-def detect_objects(image):
-    results = model(image, verbose=False)
+# Fonction détection PIL/YOLO
+def detect_image(image_pil):
+    # Convertir PIL → numpy pour YOLO
+    image_np = np.array(image_pil)
+    
+    # Détection
+    results = model(image_np, verbose=False)
     
     detected = []
     for r in results:
@@ -47,54 +52,54 @@ def detect_objects(image):
                     cls_name = model.names[int(box.cls[0])]
                     detected.append(cls_name)
     
-    # Update compteurs
+    # Compteurs
     counts = Counter(detected)
     for obj, count in counts.items():
         if obj in st.session_state.detections:
             st.session_state.detections[obj] += count
     st.session_state.detections['total'] += len(detected)
     
-    st.session_state.last_results = detected[-10:]
+    st.session_state.results = detected[-10:]
     return results[0].plot()
 
 # Métriques
 col1, col2, col3 = st.columns(3)
-with col1: st.metric("👥 Personnes", st.session_state.detections['person'])
-with col2: st.metric("📱 Téléphones", st.session_state.detections['cell phone'])
-with col3: st.metric("🚨 Total", st.session_state.detections['total'])
+with col1: 
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("👥 Personnes", st.session_state.detections['person'])
+    st.markdown('</div>', unsafe_allow_html=True)
+with col2:
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("📱 Téléphones", st.session_state.detections['cell phone'])
+    st.markdown('</div>', unsafe_allow_html=True)
+with col3:
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("🚨 Total", st.session_state.detections['total'])
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# UPLOAD PRINCIPAL ☁️ CLOUD READY
-st.markdown("### 📁 **Upload Image/Vidéo pour Détection**")
-uploaded_file = st.file_uploader("Choisir fichier", type=['png','jpg','jpeg','mp4','avi','mov'])
+# UPLOAD PRINCIPAL ✅ CLOUD READY
+st.markdown("### 📁 **Upload Image pour Détection Instantanée**")
 
-if uploaded_file is not None:
-    if uploaded_file.type.startswith('image/'):
-        # Image
-        image_bytes = uploaded_file.read()
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        with st.spinner("🔍 Détection YOLO en cours..."):
-            annotated = detect_objects(image)
-        
-        st.image(annotated, caption="✅ Détection terminée", use_column_width=True)
-        
-    elif uploaded_file.type.startswith('video/'):
-        # Vidéo - preview frame par frame
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(uploaded_file.read())
-        cap = cv2.VideoCapture(tfile.name)
-        
-        st.video(uploaded_file)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        st.info(f"🎥 {frame_count} frames - Analyse frame par frame disponible")
-        
-        cap.release()
+# Streamlit Camera Input (natif, cloud OK)
+img_file = st.camera_input("📸 Prendre photo") or st.file_uploader("📁 OU Choisir image", type=['png','jpg','jpeg'])
 
-# Résultats live
-if st.session_state.last_results:
-    st.markdown("### 🎯 **Objets détectés récemment**")
-    counts = Counter(st.session_state.last_results)
+if img_file:
+    image = Image.open(img_file)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.image(image, caption="Image originale", use_column_width=True)
+    
+    with col2:
+        with st.spinner("🔍 YOLO analyse en cours..."):
+            annotated = detect_image(image)
+            st.image(annotated, caption="✅ Objets détectés", use_column_width=True)
+
+# Résultats
+if st.session_state.results:
+    st.markdown("### 🎯 **Détections récentes**")
+    counts = Counter(st.session_state.results)
     badges = "".join([f'<span class="object-badge">{obj}: {count}</span>' for obj, count in counts.most_common(5)])
     st.markdown(badges, unsafe_allow_html=True)
 
@@ -102,27 +107,29 @@ if st.session_state.last_results:
 st.markdown("### 📊 Statistiques")
 chart_data = pd.DataFrame({
     'Objet': ['Personnes', 'Téléphones', 'Voitures', 'Chaises'],
-    'Nombre': [st.session_state.detections[k] for k in ['person', 'cell phone', 'car', 'chair']]
+    'Nombre': [st.session_state.detections['person'], st.session_state.detections['cell phone'], 
+               st.session_state.detections['car'], st.session_state.detections['chair']]
 })
 st.bar_chart(chart_data.set_index('Objet'))
 
 # Contrôles
-if st.button("🔄 Réinitialiser", type="primary"):
+if st.button("🔄 Réinitialiser", type="primary", use_container_width=True):
     st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
-    st.session_state.last_results = []
+    st.session_state.results = []
     st.rerun()
 
-# Info
-with st.expander("ℹ️ Déploiement Cloud"):
-    st.success("✅ **100% Streamlit Cloud compatible**")
+# INFO DÉPLOIEMENT
+with st.expander("🚀 Déploiement Streamlit Cloud"):
+    st.success("✅ **AUCUN problème d'import !**")
     st.code("""
-requirements.txt:
+requirements.txt ULTRA-SIMPLE :
 streamlit
 ultralytics
-opencv-python-headless
 pandas
+pillow
 numpy
-    """)
+    """, language="txt")
+    st.balloons()
 
 st.markdown("---")
-st.markdown("<div style='text-align:center;color:#666'>🤖 VisionGuard AI v3.1 | Cloud Ready</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;color:#666'>🤖 VisionGuard AI v4.0 | Cloud Perfect</div>", unsafe_allow_html=True)
