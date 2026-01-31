@@ -1,195 +1,306 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-from collections import Counter
-import numpy as np
+import random
+import time
 
-# Configuration
-st.set_page_config(page_title="VisionGuard AI - CLOUD 100%", page_icon="🤖", layout="wide")
+# Configuration de la page
+st.set_page_config(
+    page_title="Marrakech Runner",
+    page_icon="🕌",
+    layout="centered"
+)
 
-# CSS moderne
+# Initialisation de l'état du jeu
+if 'score' not in st.session_state:
+    st.session_state.score = 0
+if 'game_active' not in st.session_state:
+    st.session_state.game_active = False
+if 'player_pos' not in st.session_state:
+    st.session_state.player_pos = 1  # 0=Gauche, 1=Centre, 2=Droite
+if 'obstacles' not in st.session_state:
+    st.session_state.obstacles = []
+if 'game_speed' not in st.session_state:
+    st.session_state.game_speed = 0.5
+if 'lives' not in st.session_state:
+    st.session_state.lives = 3
+
+# Styles CSS pour l'apparence marocaine
 st.markdown("""
 <style>
-.main-header {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 15px; color: white; margin-bottom: 2rem; text-align: center;}
-.metric-card {background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-left: 4px solid #667eea; margin-bottom: 1rem;}
-.detection-badge {display: inline-block; background: #28a745; color: white; padding: 8px 15px; border-radius: 20px; margin: 5px; font-weight: bold;}
-.warning-badge {background: #ffc107; color: #212529;}
+    .stApp {
+        background: linear-gradient(135deg, #f5f1e6 0%, #e6dfd1 100%);
+    }
+    .game-title {
+        text-align: center;
+        color: #C1272D;
+        font-family: 'Georgia', serif;
+        font-size: 3.5em;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        margin-bottom: 0.2em;
+    }
+    .subtitle {
+        text-align: center;
+        color: #006233;
+        font-family: 'Arial', sans-serif;
+        font-size: 1.2em;
+        margin-bottom: 2em;
+    }
+    .score-display {
+        background-color: #C1272D;
+        color: white;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+        font-size: 1.5em;
+        font-weight: bold;
+        margin: 10px 0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .lives-display {
+        color: #C1272D;
+        font-size: 1.8em;
+        text-align: center;
+        margin: 10px 0;
+    }
+    .game-container {
+        background-color: #8B4513;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        border: 5px solid #D4AF37;
+    }
+    .lane {
+        height: 100px;
+        margin: 5px 0;
+        border-radius: 10px;
+        position: relative;
+        background: linear-gradient(90deg, #a0522d 0%, #8b4513 100%);
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+    }
+    .player {
+        position: absolute;
+        font-size: 3.5em;
+        transition: left 0.2s;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+    .obstacle {
+        position: absolute;
+        font-size: 3em;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+    .controls {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 20px;
+    }
+    .control-btn {
+        font-size: 2em;
+        padding: 15px 25px;
+        border-radius: 50%;
+        border: none;
+        background: linear-gradient(145deg, #D4AF37, #FFD700);
+        cursor: pointer;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        transition: transform 0.1s;
+    }
+    .control-btn:active {
+        transform: scale(0.95);
+    }
+    .maroc-theme {
+        background: linear-gradient(135deg, #C1272D 0%, #006233 100%);
+        color: white;
+        padding: 10px;
+        border-radius: 10px;
+        margin: 5px 0;
+        text-align: center;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Header
+# Titre du jeu
+st.markdown('<h1 class="game-title">🕌 Marrakech Runner</h1>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Guidez le Tajine à travers les ruelles animées de Marrakech !</p>', unsafe_allow_html=True)
+
+# Affichage du score et des vies
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.markdown(f'<div class="score-display">🕌 Score: {st.session_state.score} | 🏆 Meilleur: {st.session_state.get("high_score", 0)}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="lives-display">{"❤️" * st.session_state.lives}</div>', unsafe_allow_html=True)
+
+# Conteneur du jeu
+game_container = st.container()
+
+with game_container:
+    if not st.session_state.game_active:
+        # Écran de démarrage
+        st.markdown('<div class="maroc-theme">🎯 Bienvenue à Marrakech !</div>', unsafe_allow_html=True)
+        st.image("https://i.imgur.com/V0p7wVD.png", caption="Ruelles de la Médina", use_column_width=True)
+        
+        col1, col2, col3 = st.columns(3)
+        with col2:
+            if st.button("🚀 Commencer l'Aventure", use_container_width=True, type="primary"):
+                st.session_state.game_active = True
+                st.session_state.score = 0
+                st.session_state.lives = 3
+                st.session_state.obstacles = []
+                st.session_state.player_pos = 1
+                st.rerun()
+        
+        st.markdown("""
+        <div class="maroc-theme">
+        <h3>🎮 Comment jouer :</h3>
+        <p>• Utilisez les flèches ← → pour déplacer le Tajine</p>
+        <p>• Évitez les obstacles dans les ruelles</p>
+        <p>• Collectez des points en survivant le plus longtemps</p>
+        <p>• Vous avez 3 vies !</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Thèmes marocains
+        st.markdown("""
+        <div style="background-color: #f5f1e6; padding: 15px; border-radius: 10px; margin-top: 20px;">
+        <h3 style="color: #C1272D; text-align: center;">🏺 Éléments Marocains :</h3>
+        <div style="display: flex; justify-content: space-around; text-align: center;">
+            <div>
+                <div style="font-size: 2.5em;">🥘</div>
+                <div>Tajine (Vous)</div>
+            </div>
+            <div>
+                <div style="font-size: 2.5em;">🐪</div>
+                <div>Chameau (Obstacle)</div>
+            </div>
+            <div>
+                <div style="font-size: 2.5em;">🏺</div>
+                <div>Poterie (Obstacle)</div>
+            </div>
+            <div>
+                <div style="font-size: 2.5em;">🕌</div>
+                <div>Mosquée (Bonus)</div>
+            </div>
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Zone de jeu
+        st.markdown('<div class="game-container">', unsafe_allow_html=True)
+        
+        # Création des 3 voies (ruelles)
+        lanes = [0, 1, 2]
+        lane_positions = {0: "15%", 1: "45%", 2: "75%"}
+        
+        for lane in lanes:
+            lane_div = f'<div class="lane" id="lane-{lane}"></div>'
+            st.markdown(lane_div, unsafe_allow_html=True)
+            
+            # Afficher le joueur dans la bonne voie
+            if lane == st.session_state.player_pos:
+                player_emoji = "🥘"  # Tajine
+                st.markdown(
+                    f'<div class="player" style="left: {lane_positions[lane]};">{player_emoji}</div>',
+                    unsafe_allow_html=True
+                )
+            
+            # Afficher les obstacles
+            for obstacle in st.session_state.obstacles:
+                if obstacle["lane"] == lane:
+                    obstacle_type = obstacle["type"]
+                    emoji_map = {
+                        "chameau": "🐪",
+                        "poterie": "🏺",
+                        "mosquee": "🕌"
+                    }
+                    obstacle_emoji = emoji_map.get(obstacle_type, "❌")
+                    position = obstacle["position"]
+                    
+                    if 0 <= position < 100:  # Afficher seulement les obstacles visibles
+                        st.markdown(
+                            f'<div class="obstacle" style="left: {lane_positions[lane]}; top: {position}px;">{obstacle_emoji}</div>',
+                            unsafe_allow_html=True
+                        )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Contrôles de déplacement
+        st.markdown('<div class="controls">', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            if st.button("←", key="left", use_container_width=True, help="Aller à gauche"):
+                if st.session_state.player_pos > 0:
+                    st.session_state.player_pos -= 1
+                    st.rerun()
+        
+        with col2:
+            if st.button("⏸️", key="pause", use_container_width=True, help="Pause"):
+                st.session_state.game_active = False
+                st.rerun()
+        
+        with col3:
+            if st.button("→", key="right", use_container_width=True, help="Aller à droite"):
+                if st.session_state.player_pos < 2:
+                    st.session_state.player_pos += 1
+                    st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Logique du jeu
+        if st.session_state.game_active:
+            # Ajouter de nouveaux obstacles aléatoirement
+            if random.random() < 0.3:  # 30% de chance d'ajouter un obstacle
+                obstacle_type = random.choice(["chameau", "poterie", "mosquee"])
+                st.session_state.obstacles.append({
+                    "lane": random.randint(0, 2),
+                    "position": 0,
+                    "type": obstacle_type
+                })
+            
+            # Déplacer les obstacles vers le bas
+            for obstacle in st.session_state.obstacles[:]:
+                obstacle["position"] += 20
+                
+                # Vérifier les collisions
+                if (obstacle["lane"] == st.session_state.player_pos and 
+                    40 <= obstacle["position"] <= 80):
+                    if obstacle["type"] == "mosquee":
+                        st.session_state.score += 50  # Bonus
+                        st.toast("🕌 Bonus mosquée! +50 points!", icon="🎉")
+                    else:
+                        st.session_state.lives -= 1
+                        st.toast(f"💥 Collision avec {obstacle['type']}!", icon="⚠️")
+                    
+                    st.session_state.obstacles.remove(obstacle)
+                    
+                    if st.session_state.lives <= 0:
+                        st.session_state.game_active = False
+                        if st.session_state.score > st.session_state.get("high_score", 0):
+                            st.session_state.high_score = st.session_state.score
+                        st.toast(f"🏁 Game Over! Score final: {st.session_state.score}", icon="💔")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.rerun()
+                
+                # Supprimer les obstacles hors écran
+                if obstacle["position"] > 100:
+                    st.session_state.obstacles.remove(obstacle)
+                    st.session_state.score += 10
+            
+            # Augmenter la difficulté
+            if st.session_state.score > 100 and st.session_state.game_speed > 0.3:
+                st.session_state.game_speed = 0.4
+            elif st.session_state.score > 200 and st.session_state.game_speed > 0.2:
+                st.session_state.game_speed = 0.3
+            
+            # Mettre à jour le jeu automatiquement
+            time.sleep(st.session_state.game_speed)
+            st.rerun()
+
+# Pied de page
+st.markdown("---")
 st.markdown("""
-<div class="main-header">
-    <h1>🤖 VisionGuard AI Pro</h1>
-    <p>✅ 100% Streamlit Cloud - Simulation intelligente</p>
+<div style="text-align: center; color: #666; font-size: 0.9em;">
+<p>🎮 Jeu créé avec Python & Streamlit | Thème Marocain 🇲🇦</p>
+<p>🥘 Évitez les obstacles dans les ruelles de Marrakech !</p>
 </div>
 """, unsafe_allow_html=True)
-
-# Session state
-if 'detections' not in st.session_state:
-    st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'detection_log' not in st.session_state:
-    st.session_state.detection_log = []
-
-# Simulation intelligente YOLO
-def simulate_yolo_detection():
-    """Simulation réaliste de détection YOLO"""
-    import random
-    import time
-    
-    objects = [
-        ('person', 0.45),
-        ('cell phone', 0.25), 
-        ('car', 0.15),
-        ('chair', 0.10),
-        ('laptop', 0.05)
-    ]
-    
-    detected = []
-    for obj, prob in objects:
-        if random.random() < prob:
-            count = random.randint(1, 3)
-            detected.extend([obj] * count)
-    
-    # Update compteurs
-    for obj in detected:
-        if obj in st.session_state.detections:
-            st.session_state.detections[obj] += 1
-        else:
-            st.session_state.detections[obj] = 1
-    st.session_state.detections['total'] += len(detected)
-    
-    # Log
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    st.session_state.detection_log.append({
-        'time': timestamp,
-        'objects': detected,
-        'count': len(detected)
-    })
-    
-    return detected
-
-# Métriques principales
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("👥 Personnes", st.session_state.detections['person'])
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with col2:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("📱 Téléphones", st.session_state.detections.get('cell phone', 0))
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with col3:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("🚨 Total", st.session_state.detections['total'])
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with col4:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.metric("📊 Sessions", len(st.session_state.history))
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Interface principale
-st.markdown("### 🎥 **Système de détection actif**")
-
-col_btn1, col_btn2 = st.columns(2)
-with col_btn1:
-    if st.button("▶️ **DÉMARRER Détection Auto**", type="primary", use_container_width=True):
-        st.session_state.auto_detect = True
-        st.rerun()
-
-with col_btn2:
-    if st.button("🔍 **Analyse Manuelle**", use_container_width=True):
-        detected = simulate_yolo_detection()
-        st.session_state.auto_detect = False
-        st.rerun()
-
-# Détection automatique
-if st.session_state.get('auto_detect', False):
-    # Timer simulation
-    if 'last_detection' not in st.session_state:
-        st.session_state.last_detection = 0
-    
-    current_time = pd.Timestamp.now().timestamp()
-    if current_time - st.session_state.last_detection > 3:  # Toutes les 3s
-        detected = simulate_yolo_detection()
-        st.session_state.last_detection = current_time
-        
-        # Vidéo simulée
-        st.success(f"🎯 **{len(detected)} objets détectés**")
-        
-        if detected:
-            counts = Counter(detected)
-            badges = "".join([f'<span class="detection-badge">{obj}: {count}</span>' 
-                            for obj, count in counts.items()])
-            st.markdown(badges, unsafe_allow_html=True)
-
-# Upload images (fonctionne toujours)
-st.markdown("### 📁 **Upload Images (Compatible Cloud)**")
-uploaded_file = st.camera_input("📸 Webcam") or st.file_uploader("📁 Images", type=['png','jpg','jpeg'])
-
-if uploaded_file:
-    image = st.image(uploaded_file, caption="✅ Image reçue - Analyse simulée", use_column_width=True)
-    
-    # Simulation détection sur upload
-    detected = simulate_yolo_detection()
-    st.balloons()
-    
-    st.markdown("### 🎯 **Objets détectés sur votre image**")
-    counts = Counter(detected)
-    badges = "".join([f'<span class="detection-badge">{obj}: {count}</span>' 
-                    for obj, count in counts.items()])
-    st.markdown(badges, unsafe_allow_html=True)
-
-# Graphique
-st.markdown("### 📈 **Statistiques Live**")
-chart_data = pd.DataFrame({
-    'Objet': ['Personnes', 'Téléphones', 'Voitures', 'Chaises'],
-    'Nombre': [
-        st.session_state.detections.get('person', 0),
-        st.session_state.detections.get('cell phone', 0),
-        st.session_state.detections.get('car', 0),
-        st.session_state.detections.get('chair', 0)
-    ]
-})
-st.bar_chart(chart_data.set_index('Objet'), use_container_width=True)
-
-# Historique
-if st.session_state.detection_log:
-    st.markdown("### 📋 **Détections récentes**")
-    for log in st.session_state.detection_log[-5:]:
-        obj_list = ", ".join(log['objects'])
-        st.caption(f"🕐 {log['time']} - {obj_list} ({log['count']} objs)")
-
-# Contrôles
-if st.button("🔄 **Réinitialiser Tout**", type="secondary", use_container_width=True):
-    st.session_state.detections = {'person': 0, 'cell phone': 0, 'car': 0, 'chair': 0, 'total': 0}
-    st.session_state.detection_log = []
-    st.session_state.history = []
-    if 'auto_detect' in st.session_state:
-        st.session_state.auto_detect = False
-    st.rerun()
-
-# INFO DÉPLOIEMENT ✅
-with st.expander("🚀 **Déploiement Parfait**"):
-    st.success("✅ **AUCUNE dépendance externe !**")
-    st.code("""
-requirements.txt MINIMAL :
-streamlit
-pandas
-numpy
-    """, language="txt")
-    st.info("""
-✅ Déploiement instantané
-✅ Webcam input (camera_input)
-✅ Upload images  
-✅ Métriques live
-✅ 100% stable Cloud
-    """)
-
-st.markdown("---")
-st.markdown("<div style='text-align:center;color:#666'>🤖 VisionGuard AI v5.0 | Cloud Perfect | No Dependencies</div>", unsafe_allow_html=True)
