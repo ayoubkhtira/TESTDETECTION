@@ -1,623 +1,1273 @@
-# app.py
 import streamlit as st
-import qrcode
-from PIL import Image, ImageDraw, ImageFont
+import pandas as pd
+import plotly.express as px
 from io import BytesIO
-import base64
-import validators
-import json
-import time
 
-# Configuration de la page - DOIT ÊTRE LA PREMIÈRE COMMANDE
+# ============================================================
+# CONFIGURATION PAGE
+# ============================================================
+
 st.set_page_config(
-    page_title="QR Code Pro | Générateur Gratuit",
-    page_icon="🔳",
+    page_title="Platforme de similation Achats",
+    page_icon="🛒",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# CSS personnalisé moderne
+# ============================================================
+# CSS PROFESSIONNEL + FLATICON
+# ============================================================
+
 st.markdown("""
 <style>
-/* Importation de police moderne */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://cdn-uicons.flaticon.com/2.6.0/uicons-bold-rounded/css/uicons-bold-rounded.css');
+@import url('https://cdn-uicons.flaticon.com/2.6.0/uicons-regular-rounded/css/uicons-regular-rounded.css');
 
-* {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+:root {
+    --primary: #2563eb;
+    --primary-dark: #1e3a8a;
+    --dark: #0f172a;
+    --muted: #64748b;
+    --bg: #f7f9fc;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --success: #16a34a;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --purple: #7c3aed;
+    --orange: #f97316;
 }
 
-/* Header stylé */
-.main-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 2rem 1rem;
-    border-radius: 20px;
-    margin-bottom: 2rem;
-    text-align: center;
+.main {
+    background-color: var(--bg);
+}
+
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2rem;
+}
+
+.app-header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 60%, #2563eb 100%);
+    padding: 32px 36px;
+    border-radius: 26px;
+    margin-bottom: 28px;
     color: white;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.20);
 }
 
-/* Cards modernes */
-.qr-card {
+.title-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.header-icon {
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.16);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+}
+
+.app-header h1 {
+    margin: 0;
+    font-size: 34px;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+}
+
+.app-header p {
+    margin-top: 8px;
+    color: #dbeafe;
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--dark);
+    margin: 18px 0;
+}
+
+.section-title i {
+    color: var(--primary);
+}
+
+.sub-section-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 18px;
+    font-weight: 850;
+    color: #1e293b;
+    margin: 22px 0 14px 0;
+}
+
+.sub-section-title i {
+    color: #475569;
+}
+
+.card {
+    background: var(--card);
+    padding: 24px;
+    border-radius: 22px;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+    border: 1px solid var(--border);
+    min-height: 150px;
+}
+
+.card h4 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--dark);
+    margin: 0 0 10px 0;
+    font-size: 17px;
+    font-weight: 900;
+}
+
+.pro-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 13px;
+    background: rgba(37, 99, 235, 0.10);
+    color: var(--primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.metric-card {
     background: white;
+    padding: 20px 22px;
     border-radius: 20px;
-    padding: 2rem;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
-    margin-bottom: 1.5rem;
-    border: 1px solid rgba(0,0,0,0.05);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--primary);
+    min-height: 125px;
 }
 
-.qr-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 15px 35px rgba(0,0,0,0.12);
+.metric-label {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 750;
+    margin-bottom: 8px;
 }
 
-/* Boutons stylés */
-.stButton > button {
-    border-radius: 12px;
-    padding: 12px 24px;
-    font-weight: 600;
-    transition: all 0.3s ease;
-    border: none;
+.metric-value {
+    font-size: 29px;
+    color: var(--dark);
+    font-weight: 950;
+    letter-spacing: -0.4px;
 }
 
-.stButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 7px 20px rgba(0,0,0,0.15);
+.metric-help {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+    line-height: 1.4;
 }
 
-/* Sliders améliorés */
-.stSlider > div > div > div {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.warning-box {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    color: #92400e;
+    padding: 16px 18px;
+    border-radius: 16px;
+    font-weight: 750;
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 
-/* Input fields */
-.stTextInput > div > div > input, 
-.stTextArea > div > div > textarea {
-    border-radius: 12px;
-    border: 2px solid #e0e0e0;
-    padding: 12px;
-    font-size: 16px;
+.small-note {
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.55;
 }
 
-.stTextInput > div > div > input:focus, 
-.stTextArea > div > div > textarea:focus {
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-/* Onglets personnalisés */
+/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
+    gap: 10px;
 }
 
 .stTabs [data-baseweb="tab"] {
-    border-radius: 12px 12px 0 0;
-    padding: 12px 24px;
-    font-weight: 500;
+    background: white;
+    border-radius: 15px;
+    padding: 12px 20px;
+    border: 1px solid #e5e7eb;
+    font-weight: 800;
+    color: #334155;
 }
 
-/* Animations */
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+.stTabs [aria-selected="true"] {
+    background: #1e3a8a !important;
+    color: white !important;
+    border-color: #1e3a8a !important;
 }
 
-.fade-in {
-    animation: fadeIn 0.6s ease-out;
+/* Sidebar */
+div[data-testid="stSidebar"] {
+    background: #0f172a;
 }
 
-/* Badges */
-.badge {
-    display: inline-block;
-    padding: 4px 12px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+div[data-testid="stSidebar"] * {
     color: white;
-    border-radius: 20px;
+}
+
+div[data-testid="stSidebar"] label {
+    color: white !important;
+    font-weight: 750 !important;
+}
+
+.sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 20px;
+    font-weight: 900;
+    margin-bottom: 8px;
+}
+
+.sidebar-title i {
+    color: #93c5fd;
+}
+
+.sidebar-note {
+    color: #cbd5e1;
+    font-size: 13px;
+    line-height: 1.5;
+    margin-bottom: 14px;
+}
+
+.footer {
+    margin-top: 42px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+    color: #94a3b8;
     font-size: 12px;
-    font-weight: 600;
-    margin: 0 4px;
-}
-
-/* Amélioration des sélecteurs de couleur */
-.stColorPicker > div > div > input {
-    border-radius: 8px;
-    border: 2px solid #e0e0e0;
-}
-
-/* Scrollbar personnalisée */
-::-webkit-scrollbar {
-    width: 8px;
-}
-
-::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+    text-align: center;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialisation de session state
-if 'generated_qr' not in st.session_state:
-    st.session_state.generated_qr = None
-if 'qr_data' not in st.session_state:
-    st.session_state.qr_data = ""
-if 'qr_config' not in st.session_state:
-    st.session_state.qr_config = {}
 
-# Fonctions utilitaires
-def generate_qr_code(data, config):
-    """Génère un QR code avec configuration"""
-    try:
-        qr = qrcode.QRCode(
-            version=config.get('version', None),
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=config.get('box_size', 10),
-            border=config.get('border', 4),
-        )
-        qr.add_data(data)
-        qr.make(fit=True)
-        
-        img = qr.make_image(
-            fill_color=config.get('fill_color', '#000000'),
-            back_color=config.get('back_color', '#FFFFFF')
-        )
-        
-        # Conversion PIL pour manipulation
-        img = img.convert('RGBA')
-        
-        # Ajout de logo si spécifié
-        if config.get('logo'):
-            try:
-                logo = Image.open(config['logo']).convert("RGBA")
-                # Redimensionner le logo
-                logo_size = config.get('logo_size', 15)  # pourcentage
-                qr_size = img.size[0]
-                logo_new_size = int(qr_size * logo_size / 100)
-                logo = logo.resize((logo_new_size, logo_new_size))
-                
-                # Position au centre
-                pos = ((qr_size - logo_new_size) // 2, 
-                      (qr_size - logo_new_size) // 2)
-                
-                # Créer un mask pour transparence
-                mask = logo.split()[3] if len(logo.split()) == 4 else None
-                img.paste(logo, pos, mask)
-            except Exception as e:
-                st.warning(f"Impossible d'ajouter le logo: {e}")
-        
-        return img
-    except Exception as e:
-        st.error(f"Erreur lors de la génération du QR code: {e}")
+# ============================================================
+# FONCTIONS UTILITAIRES
+# ============================================================
+
+@st.cache_data(show_spinner=False)
+def get_sheet_names(file_bytes):
+    return pd.ExcelFile(BytesIO(file_bytes)).sheet_names
+
+
+@st.cache_data(show_spinner=False)
+def read_sheet(file_bytes, sheet_name):
+    return pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name)
+
+
+def normalize_columns(df):
+    df = df.copy()
+    df.columns = (
+        df.columns.astype(str)
+        .str.strip()
+        .str.replace("\n", " ", regex=False)
+        .str.replace("\t", " ", regex=False)
+        .str.replace("  ", " ", regex=False)
+    )
+    return df
+
+
+def find_column(df, possible_names):
+    if df.empty:
         return None
 
-def get_qr_download_link(img, filename="qr_code.png"):
-    """Génère un lien de téléchargement pour l'image"""
-    buffered = BytesIO()
-    img.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    href = f'<a href="data:image/png;base64,{img_str}" download="{filename}" style="text-decoration: none;">📥 Télécharger</a>'
-    return href
+    cols = list(df.columns)
+    cols_clean = {c.lower().strip(): c for c in cols}
 
-def create_wifi_qr(ssid, password, security='WPA'):
-    """Crée un QR code pour connexion WiFi"""
-    security_map = {
-        'WPA': 'WPA',
-        'WEP': 'WEP',
-        'None': 'nopass'
-    }
-    wifi_type = security_map.get(security, 'WPA')
-    return f"WIFI:T:{wifi_type};S:{ssid};P:{password};;"
+    for name in possible_names:
+        key = name.lower().strip()
+        if key in cols_clean:
+            return cols_clean[key]
 
-def create_vcard_qr(data):
-    """Crée un QR code vCard"""
-    vcard = "BEGIN:VCARD\nVERSION:3.0\n"
-    vcard += f"FN:{data.get('name', '')}\n"
-    vcard += f"TEL:{data.get('phone', '')}\n"
-    vcard += f"EMAIL:{data.get('email', '')}\n"
-    vcard += f"ORG:{data.get('company', '')}\n"
-    vcard += f"TITLE:{data.get('title', '')}\n"
-    vcard += f"ADR:{data.get('address', '')}\n"
-    vcard += f"URL:{data.get('website', '')}\n"
-    vcard += f"NOTE:{data.get('note', '')}\n"
-    vcard += "END:VCARD"
-    return vcard
+    for col in cols:
+        col_low = col.lower().strip()
+        for name in possible_names:
+            if name.lower().strip() in col_low:
+                return col
 
-# Header principal
+    return None
+
+
+def convert_dates(df, columns):
+    df = df.copy()
+    for col in columns:
+        if col and col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+    return df
+
+
+def convert_numeric(df, columns):
+    df = df.copy()
+    for col in columns:
+        if col and col in df.columns:
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.replace(",", ".", regex=False)
+                .str.replace(" ", "", regex=False)
+                .str.replace("\u00a0", "", regex=False)
+            )
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def format_number(value):
+    try:
+        if pd.isna(value):
+            return "0"
+        return f"{value:,.0f}".replace(",", " ")
+    except Exception:
+        return "0"
+
+
+def format_amount(value):
+    try:
+        if pd.isna(value):
+            return "0,00"
+        return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+    except Exception:
+        return "0,00"
+
+
+def metric_card(label, value, help_text="", color="#2563eb"):
+    st.markdown(
+        f"""
+        <div class="metric-card" style="border-left-color:{color};">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">{value}</div>
+            <div class="metric-help">{help_text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def section_title(icon, title):
+    st.markdown(
+        f"""
+        <div class="section-title">
+            <i class="{icon}"></i>
+            <span>{title}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def sub_section_title(icon, title):
+    st.markdown(
+        f"""
+        <div class="sub-section-title">
+            <i class="{icon}"></i>
+            <span>{title}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def sidebar_title(icon, title):
+    st.markdown(
+        f"""
+        <div class="sidebar-title">
+            <i class="{icon}"></i>
+            <span>{title}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def get_unique_values(df, col):
+    if col and col in df.columns:
+        return sorted(df[col].dropna().astype(str).unique())
+    return []
+
+
+def safe_group_count(df, group_col, count_col=None, top_n=15):
+    if df.empty or not group_col or group_col not in df.columns:
+        return pd.DataFrame()
+
+    temp = df.copy()
+    temp[group_col] = temp[group_col].fillna("Non renseigné").astype(str)
+
+    if count_col and count_col in temp.columns:
+        result = (
+            temp.groupby(group_col)[count_col]
+            .nunique()
+            .reset_index(name="Nombre")
+            .sort_values("Nombre", ascending=False)
+            .head(top_n)
+        )
+    else:
+        result = temp[group_col].value_counts().reset_index()
+        result.columns = [group_col, "Nombre"]
+        result = result.head(top_n)
+
+    return result
+
+
+def safe_group_sum(df, group_col, value_col, top_n=15):
+    if df.empty or not group_col or not value_col:
+        return pd.DataFrame()
+
+    if group_col not in df.columns or value_col not in df.columns:
+        return pd.DataFrame()
+
+    temp = df.copy()
+    temp[group_col] = temp[group_col].fillna("Non renseigné").astype(str)
+
+    return (
+        temp.groupby(group_col)[value_col]
+        .sum()
+        .reset_index(name="Total")
+        .sort_values("Total", ascending=False)
+        .head(top_n)
+    )
+
+
+def apply_filters(df, filters):
+    filtered = df.copy()
+    for col, values in filters.items():
+        if values and col in filtered.columns:
+            filtered = filtered[filtered[col].astype(str).isin(values)]
+    return filtered
+
+
+def apply_date_filter(df, date_col, date_range):
+    filtered = df.copy()
+
+    if date_col and date_col in filtered.columns and date_range:
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            filtered = filtered[
+                (filtered[date_col].dt.date >= start_date) &
+                (filtered[date_col].dt.date <= end_date)
+            ]
+
+    return filtered
+
+
+def download_excel_button(df, filename, label):
+    output = BytesIO()
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Données filtrées")
+
+    st.download_button(
+        label=label,
+        data=output.getvalue(),
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+
+
+def data_quality_card(df):
+    total_rows = len(df)
+    total_cols = len(df.columns)
+    missing_cells = int(df.isna().sum().sum())
+    duplicate_rows = int(df.duplicated().sum())
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        metric_card("Lignes", format_number(total_rows), "Nombre total d'enregistrements", "#2563eb")
+    with c2:
+        metric_card("Colonnes", format_number(total_cols), "Champs disponibles", "#7c3aed")
+    with c3:
+        metric_card("Cellules vides", format_number(missing_cells), "Valeurs manquantes", "#f59e0b")
+    with c4:
+        metric_card("Doublons", format_number(duplicate_rows), "Lignes dupliquées", "#ef4444")
+
+
+def show_chart(fig, key):
+    fig.update_layout(
+        template="plotly_white",
+        title_font=dict(size=17),
+        margin=dict(l=10, r=10, t=60, b=10),
+        height=420
+    )
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+
+def empty_info(message):
+    st.info(message)
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
 st.markdown("""
-<div class="main-header">
-    <h1 style="margin:0; font-size: 2.8rem;">🔳 QR Code Pro</h1>
-    <p style="margin:10px 0 0 0; font-size: 1.2rem; opacity: 0.9;">Générateur de QR codes gratuit & personnalisable</p>
-    <div style="margin-top: 15px;">
-        <span class="badge">Gratuit</span>
-        <span class="badge">Sans limites</span>
-        <span class="badge">100% Privé</span>
+<div class="app-header">
+    <div class="title-row">
+        <span class="header-icon">
+            <i class="fi fi-br-shopping-cart"></i>
+        </span>
+        <div>
+            <h1>Platforme Analyse Achats </h1>
+            <p>
+                Ciments Du Maroc
+            </p>
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Layout principal
-col1, col2 = st.columns([1, 1])
 
-with col1:
-    st.markdown("### 📝 **Contenu du QR Code**")
-    
-    # Sélection du type de contenu
-    content_type = st.selectbox(
-        "Type de contenu",
-        ["URL", "Texte", "Email", "WiFi", "Contact (vCard)", "SMS", "Téléphone", "Événement"],
-        help="Sélectionnez le type de contenu à encoder"
+# ============================================================
+# SIDEBAR - IMPORT
+# ============================================================
+
+with st.sidebar:
+    sidebar_title("fi fi-rr-settings-sliders", "Paramètres")
+
+    st.markdown(
+        """
+        <div class="sidebar-note">
+            Importez votre fichier Excel puis sélectionnez les feuilles correspondant aux demandes et commandes achats.
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-    
-    # Champs dynamiques selon le type
-    qr_data = ""
-    
-    if content_type == "URL":
-        url = st.text_input("URL complète", placeholder="https://example.com", 
-                           help="Commencez toujours par http:// ou https://")
-        if url:
-            if not url.startswith(('http://', 'https://')):
-                url = 'https://' + url
-            qr_data = url
-            
-    elif content_type == "Texte":
-        qr_data = st.text_area("Texte à encoder", height=150,
-                              placeholder="Entrez votre texte ici...",
-                              help="Tout texte peut être encodé dans un QR code")
-        
-    elif content_type == "Email":
-        col_email1, col_email2 = st.columns(2)
-        with col_email1:
-            email = st.text_input("Adresse email", placeholder="contact@exemple.com")
-        with col_email2:
-            subject = st.text_input("Sujet", placeholder="Sujet du message")
-        body = st.text_area("Message", placeholder="Corps du message")
-        
-        if email:
-            qr_data = f"mailto:{email}"
-            if subject or body:
-                qr_data += "?"
-                params = []
-                if subject:
-                    params.append(f"subject={subject}")
-                if body:
-                    params.append(f"body={body}")
-                qr_data += "&".join(params)
-                
-    elif content_type == "WiFi":
-        col_wifi1, col_wifi2 = st.columns(2)
-        with col_wifi1:
-            ssid = st.text_input("Nom du réseau (SSID)", placeholder="Nom WiFi")
-        with col_wifi2:
-            password = st.text_input("Mot de passe", type="password")
-        security = st.selectbox("Type de sécurité", ["WPA/WPA2", "WEP", "Aucun"])
-        
-        if ssid and password:
-            qr_data = create_wifi_qr(ssid, password, security)
-            
-    elif content_type == "Contact (vCard)":
-        col_vcard1, col_vcard2 = st.columns(2)
-        with col_vcard1:
-            name = st.text_input("Nom complet")
-            phone = st.text_input("Téléphone")
-            email_vcard = st.text_input("Email")
-        with col_vcard2:
-            company = st.text_input("Entreprise")
-            title = st.text_input("Poste")
-            website = st.text_input("Site web")
-        
-        vcard_data = {
-            'name': name,
-            'phone': phone,
-            'email': email_vcard,
-            'company': company,
-            'title': title,
-            'website': website
-        }
-        qr_data = create_vcard_qr(vcard_data)
-        
-    elif content_type == "SMS":
-        col_sms1, col_sms2 = st.columns(2)
-        with col_sms1:
-            sms_number = st.text_input("Numéro de téléphone", placeholder="+33612345678")
-        with col_sms2:
-            sms_body = st.text_input("Message SMS")
-        
-        if sms_number:
-            qr_data = f"SMSTO:{sms_number}"
-            if sms_body:
-                qr_data += f":{sms_body}"
-                
-    elif content_type == "Téléphone":
-        phone = st.text_input("Numéro de téléphone", placeholder="+33612345678")
-        if phone:
-            qr_data = f"tel:{phone}"
-            
-    elif content_type == "Événement":
-        col_event1, col_event2 = st.columns(2)
-        with col_event1:
-            event_title = st.text_input("Titre de l'événement")
-            event_date = st.date_input("Date")
-            event_time = st.time_input("Heure")
-        with col_event2:
-            event_location = st.text_input("Lieu")
-            event_description = st.text_area("Description")
-        
-        if event_title:
-            qr_data = f"BEGIN:VEVENT\nSUMMARY:{event_title}\n"
-            if event_date:
-                qr_data += f"DTSTART:{event_date}"
-                if event_time:
-                    qr_data += f"T{event_time}"
-            if event_location:
-                qr_data += f"\nLOCATION:{event_location}"
-            if event_description:
-                qr_data += f"\nDESCRIPTION:{event_description}"
-            qr_data += "\nEND:VEVENT"
 
-with col2:
-    st.markdown("### 🎨 **Personnalisation**")
-    
-    # Options de personnalisation
-    with st.expander("📏 **Dimensions**", expanded=True):
-        col_size1, col_size2 = st.columns(2)
-        with col_size1:
-            box_size = st.slider("Taille des modules", 5, 30, 10, 
-                                help="Taille des points du QR code")
-        with col_size2:
-            border = st.slider("Bordure", 1, 10, 4, 
-                              help="Espace blanc autour du QR code")
-    
-    with st.expander("🎨 **Couleurs**", expanded=True):
-        col_color1, col_color2 = st.columns(2)
-        with col_color1:
-            fill_color = st.color_picker("Couleur des modules", "#000000")
-        with col_color2:
-            back_color = st.color_picker("Couleur de fond", "#FFFFFF")
-    
-    with st.expander("🖼️ **Logo personnalisé**"):
-        logo_file = st.file_uploader("Ajouter un logo", type=['png', 'jpg', 'jpeg'],
-                                    help="Le logo sera placé au centre du QR code")
-        if logo_file:
-            logo_size = st.slider("Taille du logo (%)", 10, 40, 15)
-    
-    with st.expander("⚙️ **Paramètres avancés**"):
-        version = st.selectbox("Version QR", 
-                              ["Auto"] + [str(i) for i in range(1, 41)],
-                              help="Version 1-40 (plus grand = plus de données)")
-        error_correction = st.selectbox(
-            "Correction d'erreurs",
-            ["L (7%)", "M (15%)", "Q (25%)", "H (30%)"],
-            help="Plus la correction est élevée, plus le QR code est robuste"
-        )
-        
-        # Mapping correction d'erreurs
-        error_map = {
-            "L (7%)": qrcode.constants.ERROR_CORRECT_L,
-            "M (15%)": qrcode.constants.ERROR_CORRECT_M,
-            "Q (25%)": qrcode.constants.ERROR_CORRECT_Q,
-            "H (30%)": qrcode.constants.ERROR_CORRECT_H
-        }
+    uploaded_file = st.file_uploader(
+        "Importer un fichier Excel",
+        type=["xlsx", "xls"]
+    )
 
-# Bouton de génération principal
-generate_col1, generate_col2, generate_col3 = st.columns([1, 2, 1])
-with generate_col2:
-    generate_btn = st.button("🚀 **GÉNÉRER LE QR CODE**", 
-                            type="primary", 
-                            use_container_width=True,
-                            disabled=not qr_data)
-
-# Génération du QR code
-if generate_btn and qr_data:
-    with st.spinner("🔄 **Génération en cours...**"):
-        # Préparation de la configuration
-        config = {
-            'box_size': box_size,
-            'border': border,
-            'fill_color': fill_color,
-            'back_color': back_color,
-            'logo': logo_file,
-            'logo_size': logo_size if logo_file else 0,
-            'version': None if version == "Auto" else int(version),
-            'error_correction': error_map.get(error_correction, qrcode.constants.ERROR_CORRECT_H)
-        }
-        
-        # Sauvegarde dans session state
-        st.session_state.qr_data = qr_data
-        st.session_state.qr_config = config
-        
-        # Génération
-        qr_image = generate_qr_code(qr_data, config)
-        
-        if qr_image:
-            st.session_state.generated_qr = qr_image
-            
-            # Animation de succès
-            st.success("✅ **QR code généré avec succès !**")
-            st.balloons()
-
-# Affichage du QR code généré
-if st.session_state.generated_qr:
     st.markdown("---")
-    st.markdown("### 📱 **Votre QR Code**")
-    
-    # Affichage dans une card
-    with st.container():
-        st.markdown('<div class="qr-card fade-in">', unsafe_allow_html=True)
-        
-        col_display1, col_display2 = st.columns([2, 1])
-        
-        with col_display1:
-            # Afficher l'image
-            st.image(st.session_state.generated_qr, 
-                    use_column_width=True,
-                    caption="Votre QR code personnalisé")
-        
-        with col_display2:
-            st.markdown("#### 📊 **Informations**")
-            st.markdown(f"**Type:** {content_type}")
-            st.markdown(f"**Taille:** {box_size}px/module")
-            st.markdown(f"**Couleur:** {fill_color}")
-            
-            # Téléchargement
-            st.markdown("---")
-            st.markdown("#### 💾 **Télécharger**")
-            
-            # Formats disponibles
-            format_col1, format_col2 = st.columns(2)
-            with format_col1:
-                if st.button("PNG", use_container_width=True):
-                    buffered = BytesIO()
-                    st.session_state.generated_qr.save(buffered, format="PNG")
-                    st.download_button(
-                        label="📥 Télécharger PNG",
-                        data=buffered.getvalue(),
-                        file_name="qr_code.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
-            
-            with format_col2:
-                if st.button("JPG", use_container_width=True):
-                    buffered = BytesIO()
-                    rgb_image = st.session_state.generated_qr.convert('RGB')
-                    rgb_image.save(buffered, format="JPEG", quality=95)
-                    st.download_button(
-                        label="📥 Télécharger JPG",
-                        data=buffered.getvalue(),
-                        file_name="qr_code.jpg",
-                        mime="image/jpeg",
-                        use_container_width=True
-                    )
-            
-            # Taille recommandée pour impression
-            st.info(f"**💡 Conseil:** Taille recommandée pour impression: **{box_size * 3}mm**")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Test du QR code
-        st.markdown("### 🔍 **Tester votre QR code**")
-        test_col1, test_col2, test_col3 = st.columns(3)
-        with test_col1:
-            if st.button("📱 Scanner avec téléphone", use_container_width=True):
-                st.info("Utilisez l'appareil photo de votre téléphone pour scanner ce QR code")
-        with test_col2:
-            if st.button("🔄 Regénérer", use_container_width=True):
-                st.rerun()
-        with test_col3:
-            if st.button("🗑️ Réinitialiser", use_container_width=True):
-                st.session_state.generated_qr = None
-                st.session_state.qr_data = ""
-                st.rerun()
 
-# Section des QR codes rapides
-st.markdown("---")
-st.markdown("### ⚡ **QR Codes Rapides**")
+    sidebar_title("fi fi-rr-document", "Colonnes attendues")
 
-quick_cols = st.columns(4)
-with quick_cols[0]:
-    if st.button("🌐 Google", use_container_width=True):
-        st.session_state.qr_data = "https://www.google.com"
-        st.rerun()
-with quick_cols[1]:
-    if st.button("📱 WhatsApp", use_container_width=True):
-        st.session_state.qr_data = "https://wa.me/33600000000"
-        st.rerun()
-with quick_cols[2]:
-    if st.button("📧 Gmail", use_container_width=True):
-        st.session_state.qr_data = "https://mail.google.com"
-        st.rerun()
-with quick_cols[3]:
-    if st.button("📍 Maps", use_container_width=True):
-        st.session_state.qr_data = "https://maps.google.com"
-        st.rerun()
-
-# Section d'utilisation
-with st.expander("📚 **Guide d'utilisation**", expanded=False):
     st.markdown("""
-    ### Comment utiliser QR Code Pro ?
-    
-    1. **Choisissez le type de contenu** que vous souhaitez encoder
-    2. **Remplissez les champs** nécessaires (URL, texte, etc.)
-    3. **Personnalisez l'apparence** du QR code (couleurs, taille, logo)
-    4. **Générez et téléchargez** votre QR code
-    
-    ### 💡 **Conseils pratiques**
-    
-    | Utilisation | Paramètres recommandés |
-    |-------------|------------------------|
-    | Impression | Taille module ≥ 10, Correction H |
-    | Petit format | Logo ≤ 15% de la taille |
-    | Usage extérieur | Couleurs contrastées |
-    | Données longues | Version Auto |
-    
-    ### 🛡️ **Sécurité et confidentialité**
-    - Vos données ne sont **jamais stockées** sur nos serveurs
-    - Toute la génération se fait **localement** dans votre navigateur
-    - Aucune limitation d'utilisation
-    """)
+**Demandes :**
+- Dem.achat
+- Poste
+- Article
+- Désignation
+- GAc
+- Créé par
+- Demandeur
+- Quantité
+- Date DA
+- Date lanc.
+- Div.
 
-# Pied de page
-st.markdown("---")
-footer_col1, footer_col2, footer_col3 = st.columns([1, 2, 1])
-with footer_col2:
+**Commandes :**
+- Doc achat
+- Article
+- Désignation
+- Date doc.
+- Quantité
+- Prix net
+- Nom du fournisseur
+- GAc
+- Div.
+- Dev.
+""")
+
+
+# ============================================================
+# PAGE AVANT IMPORT
+# ============================================================
+
+if uploaded_file is None:
     st.markdown("""
-    <div style="text-align: center; color: #666; padding: 2rem 0;">
-        <p style="margin: 0; font-size: 0.9rem;">
-            <strong>QR Code Pro</strong> • Générateur gratuit de QR codes • 
-            <a href="https://github.com/your-repo" target="_blank" style="color: #667eea; text-decoration: none;">
-                Code source
-            </a>
-        </p>
-        <p style="margin: 10px 0 0 0; font-size: 0.8rem;">
-            © 2024 • Version 1.0 • Aucune donnée personnelle collectée
-        </p>
+    <div class="warning-box">
+        <i class="fi fi-rr-info"></i>
+        <span>Veuillez importer un fichier Excel pour démarrer l’analyse.</span>
     </div>
     """, unsafe_allow_html=True)
 
-# Sidebar avec informations supplémentaires
+    sub_section_title("fi fi-rr-apps", "Fonctionnalités disponibles")
+
+    f1, f2, f3 = st.columns(3)
+
+    with f1:
+        st.markdown("""
+        <div class="card">
+            <h4>
+                <span class="pro-icon"><i class="fi fi-rr-file-invoice"></i></span>
+                Analyse des demandes
+            </h4>
+            <p class="small-note">
+                Suivi des DA, articles demandés, demandeurs, GAc, quantités et évolution mensuelle.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with f2:
+        st.markdown("""
+        <div class="card">
+            <h4>
+                <span class="pro-icon"><i class="fi fi-rr-shopping-cart"></i></span>
+                Analyse des commandes
+            </h4>
+            <p class="small-note">
+                Analyse des commandes, fournisseurs, montants, divisions, devises et articles commandés.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with f3:
+        st.markdown("""
+        <div class="card">
+            <h4>
+                <span class="pro-icon"><i class="fi fi-rr-chart-histogram"></i></span>
+                Analyse croisée
+            </h4>
+            <p class="small-note">
+                Comparaison entre articles demandés et articles commandés pour détecter les écarts.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.stop()
+
+
+# ============================================================
+# LECTURE FICHIER
+# ============================================================
+
+try:
+    file_bytes = uploaded_file.getvalue()
+    sheet_names = get_sheet_names(file_bytes)
+except Exception as e:
+    st.error("Erreur lors de la lecture du fichier Excel.")
+    st.exception(e)
+    st.stop()
+
+
 with st.sidebar:
-    st.markdown("### ℹ️ **À propos**")
-    st.markdown("""
-    **QR Code Pro** est un générateur de QR codes :
-    
-    ✓ **100% gratuit** - Pas de limitations
-    ✓ **Aucun enregistrement** - Vos données restent privées
-    ✓ **Fonctionne hors ligne** - Après chargement initial
-    ✓ **Multi-formats** - PNG, JPG
-    ✓ **Personnalisation avancée** - Couleurs, logos, etc.
-    """)
-    
     st.markdown("---")
-    st.markdown("### 📊 **Statistiques**")
-    
-    if st.session_state.generated_qr:
-        qr_size = st.session_state.generated_qr.size
-        data_length = len(st.session_state.qr_data)
-        
-        st.metric("📏 Taille du QR", f"{qr_size[0]}×{qr_size[1]} px")
-        st.metric("📊 Données encodées", f"{data_length} caractères")
-        st.metric("🎨 Couleur principale", st.session_state.qr_config.get('fill_color', '#000000'))
-    
-    st.markdown("---")
-    st.markdown("### 🌐 **Partager**")
-    
-    if st.session_state.generated_qr:
-        buffered = BytesIO()
-        st.session_state.generated_qr.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        
-        html_code = f'<img src="data:image/png;base64,{img_str}" width="200" alt="QR Code">'
-        
-        st.code(html_code, language='html')
-        st.caption("Code HTML pour intégration")
+    sidebar_title("fi fi-rr-folder-open", "Feuilles Excel")
+
+    demande_sheet = st.selectbox(
+        "Feuille des demandes d'achat",
+        options=["Aucune"] + sheet_names,
+        index=1 if len(sheet_names) >= 1 else 0
+    )
+
+    commande_sheet = st.selectbox(
+        "Feuille des commandes achats",
+        options=["Aucune"] + sheet_names,
+        index=2 if len(sheet_names) >= 2 else 0
+    )
+
+
+df_demandes = pd.DataFrame()
+df_commandes = pd.DataFrame()
+
+try:
+    if demande_sheet != "Aucune":
+        df_demandes = normalize_columns(read_sheet(file_bytes, demande_sheet))
+
+    if commande_sheet != "Aucune":
+        df_commandes = normalize_columns(read_sheet(file_bytes, commande_sheet))
+
+except Exception as e:
+    st.error("Erreur pendant la lecture des feuilles sélectionnées.")
+    st.exception(e)
+    st.stop()
+
+
+# ============================================================
+# MAPPING COLONNES DEMANDES
+# ============================================================
+
+dem_col_da = find_column(df_demandes, ["Dem.achat", "Demande achat", "DA"])
+dem_col_poste = find_column(df_demandes, ["Poste"])
+dem_col_article = find_column(df_demandes, ["Article"])
+dem_col_designation = find_column(df_demandes, ["Désignation", "Designation"])
+dem_col_gac = find_column(df_demandes, ["GAc", "GAC"])
+dem_col_createur = find_column(df_demandes, ["Créé par", "Cree par", "Créateur"])
+dem_col_demandeur = find_column(df_demandes, ["Demandeur"])
+dem_col_quantite = find_column(df_demandes, ["Quantité", "Quantite"])
+dem_col_uq = find_column(df_demandes, ["UQ"])
+dem_col_date_da = find_column(df_demandes, ["Date DA", "Date demande"])
+dem_col_date_lanc = find_column(df_demandes, ["Date lanc.", "Date lanc", "Date lancement"])
+dem_col_div = find_column(df_demandes, ["Div.", "Div", "Division"])
+
+if not df_demandes.empty:
+    df_demandes = convert_dates(df_demandes, [dem_col_date_da, dem_col_date_lanc])
+    df_demandes = convert_numeric(df_demandes, [dem_col_quantite])
+
+
+# ============================================================
+# MAPPING COLONNES COMMANDES
+# ============================================================
+
+cmd_col_article = find_column(df_commandes, ["Article"])
+cmd_col_designation = find_column(df_commandes, ["Désignation", "Designation"])
+cmd_col_doc = find_column(df_commandes, ["Doc achat", "Document achat", "Commande"])
+cmd_col_poste = find_column(df_commandes, ["Poste"])
+cmd_col_date = find_column(df_commandes, ["Date doc.", "Date doc", "Date document"])
+cmd_col_quantite = find_column(df_commandes, ["Quantité", "Quantite"])
+cmd_col_fournisseur = find_column(df_commandes, ["Nom du fournisseur", "Fournisseur"])
+cmd_col_uac = find_column(df_commandes, ["UAc", "UAC"])
+cmd_col_prix = find_column(df_commandes, ["Prix net", "Prix"])
+cmd_col_devise = find_column(df_commandes, ["Dev.", "Devise"])
+cmd_col_gac = find_column(df_commandes, ["GAc", "GAC"])
+cmd_col_div = find_column(df_commandes, ["Div.", "Div", "Division"])
+
+if not df_commandes.empty:
+    df_commandes = convert_dates(df_commandes, [cmd_col_date])
+    df_commandes = convert_numeric(df_commandes, [cmd_col_quantite, cmd_col_prix])
+
+    if cmd_col_quantite and cmd_col_prix:
+        df_commandes["Montant estimé"] = (
+            df_commandes[cmd_col_quantite].fillna(0) *
+            df_commandes[cmd_col_prix].fillna(0)
+        )
+    elif cmd_col_prix:
+        df_commandes["Montant estimé"] = df_commandes[cmd_col_prix].fillna(0)
+    else:
+        df_commandes["Montant estimé"] = 0
+
+
+# ============================================================
+# TABS
+# ============================================================
+
+tab_overview, tab_demandes, tab_commandes, tab_compare, tab_data = st.tabs([
+    "Vue globale",
+    "Demandes d'achat",
+    "Commandes achats",
+    "Analyse croisée",
+    "Données"
+])
+
+
+# ============================================================
+# TAB 1 - VUE GLOBALE
+# ============================================================
+
+with tab_overview:
+    section_title("fi fi-br-home", "Vue globale du fichier importé")
+
+    nb_demandes = df_demandes[dem_col_da].nunique() if not df_demandes.empty and dem_col_da else len(df_demandes)
+    nb_commandes = df_commandes[cmd_col_doc].nunique() if not df_commandes.empty and cmd_col_doc else len(df_commandes)
+    nb_fournisseurs = df_commandes[cmd_col_fournisseur].nunique() if not df_commandes.empty and cmd_col_fournisseur else 0
+    montant_total = df_commandes["Montant estimé"].sum() if not df_commandes.empty and "Montant estimé" in df_commandes.columns else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        metric_card("Demandes d'achat", format_number(nb_demandes), "Nombre de DA uniques", "#2563eb")
+    with c2:
+        metric_card("Commandes achats", format_number(nb_commandes), "Nombre de commandes uniques", "#16a34a")
+    with c3:
+        metric_card("Fournisseurs", format_number(nb_fournisseurs), "Fournisseurs distincts", "#7c3aed")
+    with c4:
+        metric_card("Montant commandes", format_amount(montant_total), "Quantité × Prix net", "#f97316")
+
+    sub_section_title("fi fi-rr-chart-histogram", "Synthèse visuelle")
+
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        if not df_demandes.empty and dem_col_gac:
+            data = safe_group_count(df_demandes, dem_col_gac, dem_col_da, 10)
+            fig = px.bar(
+                data,
+                x="Nombre",
+                y=dem_col_gac,
+                orientation="h",
+                title="Top GAc par nombre de demandes",
+                text="Nombre"
+            )
+            fig.update_layout(yaxis={"categoryorder": "total ascending"})
+            show_chart(fig, "overview_top_gac")
+        else:
+            empty_info("Aucune donnée demande exploitable pour le graphique GAc.")
+
+    with col_right:
+        if not df_commandes.empty and cmd_col_fournisseur:
+            data = safe_group_sum(df_commandes, cmd_col_fournisseur, "Montant estimé", 10)
+            fig = px.bar(
+                data,
+                x="Total",
+                y=cmd_col_fournisseur,
+                orientation="h",
+                title="Top fournisseurs par montant estimé",
+                text="Total"
+            )
+            fig.update_layout(yaxis={"categoryorder": "total ascending"})
+            show_chart(fig, "overview_top_fournisseurs")
+        else:
+            empty_info("Aucune donnée commande exploitable pour le graphique fournisseurs.")
+
+
+# ============================================================
+# TAB 2 - DEMANDES
+# ============================================================
+
+with tab_demandes:
+    section_title("fi fi-rr-file-invoice", "Analyse des demandes d’achat")
+
+    if df_demandes.empty:
+        st.warning("Aucune feuille de demandes sélectionnée ou feuille vide.")
+    else:
+        with st.sidebar:
+            st.markdown("---")
+            sidebar_title("fi fi-rr-filter", "Filtres demandes")
+
+            dem_filters = {}
+
+            if dem_col_gac:
+                dem_filters[dem_col_gac] = st.multiselect("GAc", get_unique_values(df_demandes, dem_col_gac))
+            if dem_col_demandeur:
+                dem_filters[dem_col_demandeur] = st.multiselect("Demandeur", get_unique_values(df_demandes, dem_col_demandeur))
+            if dem_col_createur:
+                dem_filters[dem_col_createur] = st.multiselect("Créateur", get_unique_values(df_demandes, dem_col_createur))
+            if dem_col_div:
+                dem_filters[dem_col_div] = st.multiselect("Division", get_unique_values(df_demandes, dem_col_div))
+
+            dem_date_range = None
+
+            if dem_col_date_da and dem_col_date_da in df_demandes.columns and df_demandes[dem_col_date_da].notna().any():
+                min_date = df_demandes[dem_col_date_da].min().date()
+                max_date = df_demandes[dem_col_date_da].max().date()
+
+                dem_date_range = st.date_input(
+                    "Période Date DA",
+                    value=(min_date, max_date),
+                    min_value=min_date,
+                    max_value=max_date
+                )
+
+        df_dem_filtered = apply_filters(df_demandes, dem_filters)
+        df_dem_filtered = apply_date_filter(df_dem_filtered, dem_col_date_da, dem_date_range)
+
+        total_da = df_dem_filtered[dem_col_da].nunique() if dem_col_da else len(df_dem_filtered)
+        total_lignes = len(df_dem_filtered)
+        total_articles = df_dem_filtered[dem_col_article].nunique() if dem_col_article else 0
+        total_quantite = df_dem_filtered[dem_col_quantite].sum() if dem_col_quantite else 0
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            metric_card("DA uniques", format_number(total_da), "Demandes distinctes", "#2563eb")
+        with c2:
+            metric_card("Lignes DA", format_number(total_lignes), "Postes de demandes", "#16a34a")
+        with c3:
+            metric_card("Articles", format_number(total_articles), "Articles distincts", "#7c3aed")
+        with c4:
+            metric_card("Quantité totale", format_number(total_quantite), "Somme des quantités", "#f97316")
+
+        sub_section_title("fi fi-rr-chart-histogram", "Analyses principales")
+
+        g1, g2 = st.columns(2)
+
+        with g1:
+            if dem_col_div:
+                data = safe_group_count(df_dem_filtered, dem_col_div, dem_col_da, 15)
+                fig = px.bar(
+                    data,
+                    x=dem_col_div,
+                    y="Nombre",
+                    title="Nombre de demandes par division",
+                    text="Nombre"
+                )
+                show_chart(fig, "demandes_division")
+            elif dem_col_gac:
+                data = safe_group_count(df_dem_filtered, dem_col_gac, dem_col_da, 15)
+                fig = px.bar(
+                    data,
+                    x=dem_col_gac,
+                    y="Nombre",
+                    title="Nombre de demandes par GAc",
+                    text="Nombre"
+                )
+                show_chart(fig, "demandes_gac")
+            else:
+                empty_info("Colonne Division ou GAc non disponible.")
+
+        with g2:
+            if dem_col_designation:
+                data = safe_group_count(df_dem_filtered, dem_col_designation, None, 15)
+                fig = px.bar(
+                    data,
+                    x="Nombre",
+                    y=dem_col_designation,
+                    orientation="h",
+                    title="Top articles demandés",
+                    text="Nombre"
+                )
+                fig.update_layout(yaxis={"categoryorder": "total ascending"})
+                show_chart(fig, "demandes_articles")
+            else:
+                empty_info("Colonne Désignation non disponible.")
+
+        g3, g4 = st.columns(2)
+
+        with g3:
+            if dem_col_demandeur:
+                data = safe_group_count(df_dem_filtered, dem_col_demandeur, dem_col_da, 15)
+                fig = px.bar(
+                    data,
+                    x="Nombre",
+                    y=dem_col_demandeur,
+                    orientation="h",
+                    title="Top demandeurs par nombre de DA",
+                    text="Nombre"
+                )
+                fig.update_layout(yaxis={"categoryorder": "total ascending"})
+                show_chart(fig, "demandes_demandeurs")
+            else:
+                empty_info("Colonne demandeur non disponible.")
+
+        with g4:
+            if dem_col_date_da:
+                trend = (
+                    df_dem_filtered
+                    .dropna(subset=[dem_col_date_da])
+                    .groupby(df_dem_filtered[dem_col_date_da].dt.to_period("M"))
+                    .size()
+                    .reset_index(name="Nombre")
+                )
+
+                if not trend.empty:
+                    trend[dem_col_date_da] = trend[dem_col_date_da].astype(str)
+                    fig = px.line(
+                        trend,
+                        x=dem_col_date_da,
+                        y="Nombre",
+                        markers=True,
+                        title="Évolution mensuelle des demandes"
+                    )
+                    show_chart(fig, "demandes_trend")
+                else:
+                    empty_info("Aucune donnée temporelle disponible.")
+            else:
+                empty_info("Colonne Date DA non disponible.")
+
+        sub_section_title("fi fi-rr-database", "Qualité des données demandes")
+        data_quality_card(df_dem_filtered)
+
+        sub_section_title("fi fi-rr-table", "Données demandes filtrées")
+        st.dataframe(df_dem_filtered, use_container_width=True, height=420)
+
+        download_excel_button(
+            df_dem_filtered,
+            "demandes_filtrees.xlsx",
+            "Télécharger les demandes filtrées"
+        )
+
+
+# ============================================================
+# TAB 3 - COMMANDES
+# ============================================================
+
+with tab_commandes:
+    section_title("fi fi-rr-shopping-cart", "Analyse des commandes achats")
+
+    if df_commandes.empty:
+        st.warning("Aucune feuille de commandes sélectionnée ou feuille vide.")
+    else:
+        with st.sidebar:
+            st.markdown("---")
+            sidebar_title("fi fi-rr-filter", "Filtres commandes")
+
+            cmd_filters = {}
+
+            if cmd_col_fournisseur:
+                cmd_filters[cmd_col_fournisseur] = st.multiselect("Fournisseur", get_unique_values(df_commandes, cmd_col_fournisseur))
+            if cmd_col_div:
+                cmd_filters[cmd_col_div] = st.multiselect("Division commande", get_unique_values(df_commandes, cmd_col_div))
+            if cmd_col_gac:
+                cmd_filters[cmd_col_gac] = st.multiselect("GAc commande", get_unique_values(df_commandes, cmd_col_gac))
+            if cmd_col_devise:
+                cmd_filters[cmd_col_devise] = st.multiselect("Devise", get_unique_values(df_commandes, cmd_col_devise))
+
+            cmd_date_range = None
+
+            if cmd_col_date and cmd_col_date in df_commandes.columns and df_commandes[cmd_col_date].notna().any():
+                min_date = df_commandes[cmd_col_date].min().date()
+                max_date = df_commandes[cmd_col_date].max().date()
+
+                cmd_date_range = st.date_input(
+                    "Période Date document",
+                    value=(min_date, max_date),
+                    min_value=min_date,
+                    max_value=max_date
+                )
+
+        df_cmd_filtered = apply_filters(df_commandes, cmd_filters)
+        df_cmd_filtered = apply_date_filter(df_cmd_filtered, cmd_col_date, cmd_date_range)
+
+        total_cmd = df_cmd_filtered[cmd_col_doc].nunique() if cmd_col_doc else len(df_cmd_filtered)
+        total_lignes_cmd = len(df_cmd_filtered)
+        total_fournisseurs = df_cmd_filtered[cmd_col_fournisseur].nunique() if cmd_col_fournisseur else 0
+        total_montant = df_cmd_filtered["Montant estimé"].sum() if "Montant estimé" in df_cmd_filtered.columns else 0
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            metric_card("Commandes uniques", format_number(total_cmd), "Documents achats distincts", "#2563eb")
+        with c2:
+            metric_card("Lignes commandes", format_number(total_lignes_cmd), "Postes de commandes", "#16a34a")
+        with c3:
+            metric_card("Fournisseurs", format_number(total_fournisseurs), "Fournisseurs distincts", "#7c3aed")
+        with c4:
+            metric_card("Montant total", format_amount(total_montant), "Quantité × Prix net", "#f97316")
+
+        sub_section_title("fi fi-rr-chart-histogram", "Analyses fournisseurs, articles et divisions")
+
+        g1, g2 = st.columns(2)
+
+        with g1:
+            if cmd_col_fournisseur:
+                data = safe_group_sum(df_cmd_filtered, cmd_col_fournisseur, "Montant estimé", 15)
+                fig = px.bar(
+                    data,
+                    x="Total",
+                    y=cmd_col_fournisseur,
+                    orientation="h",
+                    title="Top fournisseurs par montant estimé",
+                    text="Total"
+                )
+                fig.update_layout(yaxis={"categoryorder": "total ascending"})
+                show_chart(fig, "commandes_fournisseurs")
+            else:
+                empty_info("Colonne fournisseur non disponible.")
+
+        with g2:
+            if cmd_col_designation:
+                data = safe_group_sum(df_cmd_filtered, cmd_col_designation, "Montant estimé", 15)
+                fig = px.bar(
+                    data,
+                    x="Total",
+                    y=cmd_col_designation,
+                    orientation="h",
+                    title="Top articles par montant estimé",
+                    text="Total"
+                )
+                fig.update_layout(yaxis={"categoryorder": "total ascending"})
+                show_chart(fig, "commandes_articles")
+            else:
+                empty_info("Colonne désignation non disponible.")
+
+        g3, g4 = st.columns(2)
+
+        with g3:
+            if cmd_col_div:
+                data = safe_group_sum(df_cmd_filtered, cmd_col_div, "Montant estimé", 15)
+                fig = px.pie(
+                    data,
+                    names=cmd_col_div,
+                    values="Total",
+                    title="Répartition du montant par division",
+                    hole=0.45
+                )
+                show_chart(fig, "commandes_division")
+            elif cmd_col_gac:
+                data = safe_group_sum(df_cmd_filtered, cmd_col_gac, "Montant estimé", 15)
+                fig = px.pie(
+                    data,
+                    names=cmd_col_gac,
+                    values="Total",
+                    title="Répartition du montant par GAc",
+                    hole=0.45
+                )
+                show_chart(fig, "commandes_gac")
+            else:
+                empty_info("Colonne division ou GAc non disponible.")
+
+        with g4:
+            if cmd_col_date:
+                trend = (
+                    df_cmd_filtered
+                    .dropna(subset=[cmd_col_date])
+                    .groupby(df_cmd_filtered[cmd_col_date].dt.to_period("M"))["Montant estimé"]
+                    .sum()
+                    .reset_index(name="Montant")
+                )
+
+                if not trend.empty:
+                    trend[cmd_col_date] = trend[cmd_col_date].astype(str)
+                    fig = px.line(
+                        trend,
+                        x=cmd_col_date,
+                        y="Montant",
+                        markers=True,
+                        title="Évolution mensuelle des montants commandes"
+                    )
+                    show_chart(fig, "commandes_trend")
+                else:
+                    empty_info("Aucune donnée temporelle disponible.")
+            else:
+                empty_info("Colonne Date document non disponible.")
+
+        sub_section_title("fi fi-rr-ranking-star", "Classements avancés")
+
+        t1, t2, t3 = st.columns(3)
+
+        with t1:
+            if cmd_col_fournisseur:
+                st.markdown("#### Fournisseurs par nombre de commandes")
+                top_nb_cmd = safe_group_count(df_cmd_filtered, cmd_col_fournisseur, cmd_col_doc, 10)
+                st.dataframe(top_nb_cmd, use_container_width=True, height=320)
+
+        with t2:
+            if cmd_col_designation and cmd_col_quantite:
+                st.markdown("#### Articles par quantité")
+                top_qty = safe_group_sum(df_cmd_filtered, cmd_col_designation, cmd_col_quantite, 10)
+                st.dataframe(top_qty, use_container_width=True, height=320)
+
+        with t3:
+            if cmd_col_gac:
+                st.markdown("#### GAc par montant")
+                top_gac = safe_group_sum(df_cmd_filtered, cmd_col_gac, "Montant estimé", 10)
+                st.dataframe(top_gac, use_container_width=True, height=320)
+
+        sub_section_title("fi fi-rr-database", "Qualité des données commandes")
+        data_quality_card(df_cmd_filtered)
+
+        sub_section_title("fi fi-rr-table", "Données commandes filtrées")
+        st.dataframe(df_cmd_filtered, use_container_width=True, height=420)
+
+        download_excel_button(
+            df_cmd_filtered,
+            "commandes_filtrees.xlsx",
+            "Télécharger les commandes filtrées"
+        )
+
+
+# ============================================================
+# TAB 4 - ANALYSE CROISÉE
+# ============================================================
+
+with tab_compare:
+    section_title("fi fi-rr-search-alt", "Analyse croisée demandes vs commandes")
+
+    if df_demandes.empty or df_commandes.empty:
+        st.warning("L’analyse croisée nécessite les deux feuilles : demandes et commandes.")
+    elif not dem_col_article or not cmd_col_article:
+        st.warning("L’analyse croisée nécessite la colonne Article dans les deux feuilles.")
+    else:
+        articles_demandes = set(df_demandes[dem_col_article].dropna().astype(str))
+        articles_commandes = set(df_commandes[cmd_col_article].dropna().astype(str))
+
+        articles_communs = articles_demandes.intersection(articles_commandes)
+        articles_non_commandes = articles_demandes - articles_commandes
+        articles_commandes_hors_demandes = articles_commandes - articles_demandes
+
+        taux_couverture = (
+            len(articles_communs) / len(articles_demandes) * 100
+            if len(articles_demandes) > 0 else 0
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            metric_card("Articles demandés", format_number(len(articles_demandes)), "Articles dans les DA", "#2563eb")
+        with c2:
+            metric_card("Articles commandés", format_number(len(articles_commandes)), "Articles dans les commandes", "#16a34a")
+        with c3:
+            metric_card("Articles communs", format_number(len(articles_communs)), f"Taux couverture : {taux_couverture:.1f}%", "#7c3aed")
+        with c4:
+            metric_card("Demandés non commandés", format_number(len(articles_non_commandes)), "Écart potentiel", "#ef4444")
+
+        sub_section_title("fi fi-rr-chart-pie-alt", "Couverture articles")
+
+        coverage_df = pd.DataFrame({
+            "Catégorie": [
+                "Articles communs",
+                "Demandés non commandés",
+                "Commandés hors demandes"
+            ],
+            "Nombre": [
+                len(articles_communs),
+                len(articles_non_commandes),
+                len(articles_commandes_hors_demandes)
+            ]
+        })
+
+        fig = px.bar(
+            coverage_df,
+            x="Catégorie",
+            y="Nombre",
+            text="Nombre",
+            title="Couverture entre demandes et commandes"
+        )
+        show_chart(fig, "compare_couverture")
+
+        if articles_non_commandes:
+            sub_section_title("fi fi-rr-triangle-warning", "Articles demandés mais non commandés")
+
+            non_cmd_df = df_demandes[
+                df_demandes[dem_col_article].astype(str).isin(articles_non_commandes)
+            ]
+
+            st.dataframe(non_cmd_df, use_container_width=True, height=350)
+
+            download_excel_button(
+                non_cmd_df,
+                "articles_demandes_non_commandes.xlsx",
+                "Télécharger les articles demandés non commandés"
+            )
+        else:
+            st.success("Tous les articles demandés existent dans les commandes.")
+
+
+# ============================================================
+# TAB 5 - DONNÉES
+# ============================================================
+
+with tab_data:
+    section_title("fi fi-rr-folder-open", "Exploration des données")
+
+    data_tab1, data_tab2 = st.tabs(["Demandes", "Commandes"])
+
+    with data_tab1:
+        if df_demandes.empty:
+            st.info("Aucune donnée demande disponible.")
+        else:
+            sub_section_title("fi fi-rr-table", "Aperçu demandes")
+            st.dataframe(df_demandes, use_container_width=True, height=500)
+
+            sub_section_title("fi fi-rr-list", "Colonnes détectées demandes")
+            st.write(list(df_demandes.columns))
+
+    with data_tab2:
+        if df_commandes.empty:
+            st.info("Aucune donnée commande disponible.")
+        else:
+            sub_section_title("fi fi-rr-table", "Aperçu commandes")
+            st.dataframe(df_commandes, use_container_width=True, height=500)
+
+            sub_section_title("fi fi-rr-list", "Colonnes détectées commandes")
+            st.write(list(df_commandes.columns))
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.markdown("""
+<div class="footer">
+    Platforme de simulation Achats  — Dévellopé par AYOUB KHTIRA - Ciment du maroc 
+</div>
+""", unsafe_allow_html=True)
